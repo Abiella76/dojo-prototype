@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import random
 import os
+import json  # For better error printing
 
 # ────── SAFE SESSION STATE INIT ──────
 defaults = {
@@ -46,17 +47,33 @@ def grok_chat(messages):
         import requests
         response = requests.post(
             "https://api.x.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROK_API_KEY}"},
+            headers={
+                "Authorization": f"Bearer {GROK_API_KEY}",
+                "Content-Type": "application/json"
+            },
             json={
-                "model": "grok-beta",
+                "model": "grok-4",  # Updated to current 2025 production model
                 "messages": messages,
                 "temperature": 0.8,
-                "max_tokens": 150
+                "max_tokens": 150,
+                "stream": False  # Explicit for stability
             },
             timeout=15
         )
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
+        response.raise_for_status()  # Raise if 4xx/5xx error
+        data = response.json()
+        
+        # Debug: Show full response if error (remove later if you want)
+        if "error" in data:
+            st.error(f"API Error: {json.dumps(data['error'], indent=2)}")
+            return f"Hey {st.session_state.user_name}, API hiccup: {data['error'].get('message', 'Unknown')}. Mock mode on!"
+        
+        return data["choices"][0]["message"]["content"]
+    except requests.exceptions.RequestException as e:
+        st.error(f"Request failed: {str(e)}")
+        return f"Hey {st.session_state.user_name}, network breather. (Details: {str(e)[:50]}...) Mock mode on!"
+    except (KeyError, IndexError, json.JSONDecodeError) as e:
+        st.error(f"Parse error: {str(e)}. Raw response: {response.text[:200] if 'response' in locals() else 'No response'}")
         return f"Hey {st.session_state.user_name}, Grok's taking a quick breather. (Error: {str(e)[:50]}...) Mock mode on!"
 
 # ────── CARRY-OVER LOGIC ──────
@@ -119,4 +136,37 @@ with st.sidebar:
     st.metric("Total Points", st.session_state.points)
     st.metric("Streak", f"{st.session_state.streak} days 🔥")
 
-# ────── MAIN TASKS
+# ────── MAIN TASKS ──────
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    st.subheader(f"📋 Tomorrow’s Dojo — {(datetime.now() + timedelta(days=1)).strftime('%b %d, %Y')}")
+    
+    with st.form("add_task", clear_on_submit=True):
+        new_task = st.text_input("New task", placeholder="e.g., 30 min workout, Call mom")
+        if st.form_submit_button("Add Task"):
+            if new_task.strip():
+                st.session_state.tasks.append({"text": new_task.strip(), "completed": False})
+                st.success(f"Added: {new_task.strip()}")
+                st.rerun()
+
+    # Score calc
+    total_tasks = len(st.session_state.tasks)
+    completed = sum(1 for t in st.session_state.tasks if t.get("completed", False))
+    score = int((completed / total_tasks * 100) if total_tasks else 0)
+    st.metric("Today's Score", f"{score}%")
+
+    # Task list with fixed checkboxes
+    for i, task in enumerate(st.session_state.tasks.copy()):
+        cols = st.columns([4, 1, 1])
+        with cols[0]:
+            is_checked = st.checkbox(task["text"], value=task.get("completed", False), key=f"cb_{i}")
+            if is_checked and not task.get("completed", False):
+                task["completed"] = True
+                st.session_state.points += 10
+                st.balloons()
+                st.rerun()
+        with cols[1]:
+            if st.button("✓", key=f"check_{i}", disabled=task.get("completed", False)):
+                task["completed"] = True
+                st.session_state.points += 

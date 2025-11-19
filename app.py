@@ -1,126 +1,125 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import random
+import os
 
-# ────── FORCE INITIALIZE EVERYTHING SAFELY ──────
-if "tasks" not in st.session_state:
-    st.session_state.tasks = []
-if "points" not in st.session_state:
-    st.session_state.points = 0
-if "streak" not in st.session_state:
-    st.session_state.streak = 0
-if "last_date" not in st.session_state:
-    st.session_state.last_date = datetime.now().date()
-if "ai_history" not in st.session_state:
-    st.session_state.ai_history = []
+# ────── SAFE SESSION STATE INIT ──────
+defaults = {
+    "tasks": [], "points": 0, "streak": 0,
+    "last_date": datetime.now().date(),
+    "ai_history": [], "user_name": "there"
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ────── MOCK AI RESPONSES (real Grok API coming next) ──────
-AI_RESPONSES = [
-    "Solid move! That one’s going to feel great when it’s checked off.",
-    "Love the balance you’re building. Anything else you want to stack on top?",
-    "Pro tip: knock out the hardest one first tomorrow — huge dopamine hit waiting!",
-    "You’re on a roll. Let’s keep that streak alive 🔥",
-    "Quick sensei nudge: no movement task today — even a 10-min walk counts!",
-    "Crushed yesterday! What’s the one thing you’re most pumped to finish tomorrow?"
-]
+# ────── GROK API SETUP (real intelligence!) ──────
+GROK_API_KEY = st.secrets.get("GROK_API_KEY") or os.getenv("GROK_API_KEY")
+if st.sidebar.text_input("🔑 Grok API Key (optional for now)", type="password", value=""):
+    st.session_state.grok_key = st.text_input("🔑 Grok API Key", type="password", value="")[0]
+elif "grok_key" in st.session_state:
+    GROK_API_KEY = st.session_state.grok_key
 
-def get_ai_response(prompt, tasks):
-    task_text = " ".join(t["text"] for t in tasks).lower()
-    if "fit" not in task_text and "walk" not in task_text and "gym" not in task_text:
-        return "Sensei noticing… no fitness today? Even a quick stretch keeps the energy high. Want one?"
-    return random.choice(AI_RESPONSES)
+def grok_chat(messages):
+    if not GROK_API_KEY:
+        # fallback mock responses
+        fallback = [
+            f"Nice one, {st.session_state.user_name}! That task is going to feel so good checked off.",
+            f"You're building something big here, {st.session_state.user_name}. Keep stacking wins.",
+            f"Quick sensei check-in: any movement on the list today, {st.session_state.user_name}?",
+            f"Tomorrow-you is already thanking today-you, {st.session_state.user_name} 🔥"
+        ]
+        return random.choice(fallback)
+    
+    import requests
+    try:
+        response = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROK_API_KEY}"},
+            json={
+                "model": "grok-beta",
+                "messages": messages,
+                "temperature": 0.8,
+                "max_tokens": 150
+            },
+            timeout=15
+        )
+        return response.json()["choices"][0]["message"]["content"]
+    except:
+        return f"Hey {st.session_state.user_name}, looks like Grok took a quick nap. Try again in a sec!"
 
+# ────── CARRY-OVER LOGIC ──────
 def end_day_carry_over():
     today = datetime.now().date()
     if st.session_state.last_date != today:
         unfinished = [t for t in st.session_state.tasks if not t.get("completed", False)]
         st.session_state.tasks = unfinished
-        if st.session_state.tasks:  # had something to do
-            st.session_state.streak += 1
-        else:
-            st.session_state.streak = 0
+        st.session_state.streak = st.session_state.streak + 1 if unfinished or st.session_state.tasks else 0
         st.session_state.last_date = today
-        st.success("Day closed — unfinished tasks rolled to tomorrow!")
+        st.success("Day closed — unfinished rolled to tomorrow!")
         st.rerun()
 
-# ────── PAGE CONFIG & TITLE ──────
-st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
-st.title("🥋 Dojo: Your Nightly Productivity Ritual")
+# ────── PAGE ──────
+st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
+st.title(f"🥋 Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
-# auto carry-over on new day
+# Ask name once
+if st.session_state.user_name == "there":
+    name = st.text_input("First, what should I call you?", placeholder="Your name")
+    if name:
+        st.session_state.user_name = name.strip() or "Warrior"
+        st.rerun()
+
 end_day_carry_over()
 
-# ────── SIDEBAR – AI COACH ──────
+# ────── SIDEBAR AI COACH (now powered by real Grok!) ──────
 with st.sidebar:
-    st.header("🤖 Your AI Dojo Master")
-    for msg in st.session_state.ai_history[-6:]:
+    st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
+    
+    # chat history
+    for msg in st.session_state.ai_history[-8:]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    if prompt := st.chat_input("Chat with your coach… (e.g., 'Suggest a task')"):
+    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach anything…")
+    if prompt:
         st.session_state.ai_history.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
-        reply = get_ai_response(prompt, st.session_state.tasks)
+        with st.chat_message("user"): st.write(prompt)
+
+        # Build context for Grok
+        task_summary = "\n".join(f"- {'✅' if t.get('completed') else '⭕'} {t['text']}" for t in st.session_state.tasks)
+        system_prompt = [
+            {"role": "system", "content": f"You are Dojo Master, a wise, fun, slightly cheeky AI coach for {st.session_state.user_name}. "
+             "You help with productivity, motivation, balance (especially fitness), and gentle nudges. Keep replies short, warm, and actionable."},
+            {"role": "user", "content": f"Current tasks:\n{task_summary or 'none yet'}\n\nUser says: {prompt}"}
+        ]
+        reply = grok_chat(system_prompt)
         st.session_state.ai_history.append({"role": "assistant", "content": reply})
-        with st.chat_message("assistant"):
-            st.write(reply)
+        with st.chat_message("assistant"): st.write(reply)
         st.rerun()
 
     st.divider()
     st.metric("Total Points", st.session_state.points)
-    st.metric("Current Streak", f"{st.session_state.streak} days")
+    st.metric("Streak", f"{st.session_state.streak} days 🔥")
 
-# ────── MAIN AREA ──────
-c1, c2 = st.columns([2, 1])
+# ────── MAIN TASKS ──────
+c1, c2 = st.columns([2,1])
 
 with c1:
-    st.subheader(f"📋 Tomorrow's Dojo — {datetime.now().date() + timedelta(days=1):%b %d, %Y}")
-
-    with st.form("add_task_form", clear_on_submit=True):
-        new_task = st.text_input("New task", placeholder="e.g. Call mom, 30 min run, Finish slides")
+    st.subheader(f"Tomorrow’s Dojo — {(datetime.now()+timedelta(days=1)).strftime('%b %d')}")
+    
+    with st.form("add", clear_on_submit=True):
+        new = st.text_input("New task", placeholder="e.g., 30 min workout, Call mom")
         if st.form_submit_button("Add Task"):
-            if new_task.strip():
-                st.session_state.tasks.append({"text": new_task.strip(), "completed": False})
-                st.success(f"Added: {new_task}")
+            if new.strip():
+                st.session_state.tasks.append({"text": new.strip(), "completed": False})
                 st.rerun()
 
-    # Tasks list
-    completed_count = sum(1 for t in st.session_state.tasks if t.get("completed", False))
-    total_count = len(st.session_state.tasks)
-    score = int((completed_count / total_count * 100) if total_count else 0)
-    st.metric("Today's Score", f"{score}%")
+    completed = sum(1 for t in st.session_state.tasks if t.get("completed"))
+    score = int(completed/len(st.session_state.tasks)*100) if st.session_state.tasks else 0
+    st.metric("Score", f"{score}%")
 
     for i, task in enumerate(st.session_state.tasks.copy()):
-        cols = st.columns([4, 1, 1])
+        cols = st.columns([4,1,1])
         with cols[0]:
-            if st.checkbox(task["text"], value=task.get("completed", False), key=f"cb_{i}"):
-                if not task.get("completed", False):
-                    task["completed"] = True
-                    st.session_state.points += 10
-                    st.balloons()
-                    st.rerun()
-        with cols[1]:
-            if st.button("✓", key=f"check_{i}", disabled=task.get("completed", False)):
-                task["completed"] = True
-                st.session_state.points += 10
-                st.balloons()
-                st.rerun()
-        with cols[2]:
-            if st.button("🗑️", key=f"del_{i}"):
-                st.session_state.tasks.pop(i)
-                st.rerun()
-
-with c2:
-    st.subheader("Quick Stats")
-    st.write(f"**Left:** {total_count - completed_count}")
-    if st.button("End Day & Carry Over", type="primary", use_container_width=True):
-        end_day_carry_over()
-
-    if st.button("Reset Streak (for testing)"):
-        st.session_state.streak = 0
-        st.rerun()
-
-    st.caption("Built with ❤️ by Grok & Abi")
-
-# ────── DONE ──────
+            if st.checkbox

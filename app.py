@@ -10,7 +10,7 @@ defaults = {
     "tasks": [], "points": 0, "streak": 0,
     "last_date": datetime.now().date(),
     "ai_history": [], "user_name": "there",
-    "grok_key": ""  # Explicit init for key
+    "grok_key": "", "key_valid": False  # Track validation
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -18,9 +18,8 @@ for k, v in defaults.items():
 
 # ────── GROK API SETUP ──────
 def grok_chat(messages):
-    # Key from session only after sidebar sets it
     grok_key = st.session_state.get("grok_key", "")
-    if not grok_key:
+    if not grok_key or not st.session_state.get("key_valid", False):
         fallback = [
             f"Nice one, {st.session_state.user_name}! That task is going to feel so good checked off.",
             f"You're building something big here, {st.session_state.user_name}. Keep stacking wins.",
@@ -34,7 +33,7 @@ def grok_chat(messages):
             "https://api.x.ai/v1/chat/completions",
             headers={"Authorization": f"Bearer {grok_key}"},
             json={
-                "model": "grok-4.1",  # Latest as of Nov 2025: More empathetic & creative
+                "model": "grok-4.1",  # Confirmed latest as of Nov 19, 2025
                 "messages": messages,
                 "temperature": 0.8,
                 "max_tokens": 150
@@ -44,8 +43,35 @@ def grok_chat(messages):
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        st.error(f"API hiccup: {str(e)[:100]}... Falling back to mock.")
+        st.error(f"API hiccup during chat: {str(e)[:100]}... Falling back to mock.")
         return f"Hey {st.session_state.user_name}, Grok's taking a quick breather. Mock mode on!"
+
+def test_key():
+    grok_key = st.session_state.get("grok_key", "")
+    if not grok_key:
+        st.error("No key to test—paste one first!")
+        return
+    try:
+        response = requests.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {grok_key}"},
+            json={
+                "model": "grok-4.1",
+                "messages": [{"role": "user", "content": "Say 'test success'."}],
+                "max_tokens": 10
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        if "test success" in response.json()["choices"][0]["message"]["content"].lower():
+            st.session_state.key_valid = True
+            st.success("✅ Key accepted! Grok is active 💫")
+            st.rerun()
+        else:
+            st.error("Key responded but weirdly—try regenerating at console.x.ai.")
+    except Exception as e:
+        st.session_state.key_valid = False
+        st.error(f"Key test failed: {str(e)[:100]}. Check console.x.ai for credits/errors.")
 
 # ────── CARRY-OVER LOGIC ──────
 def end_day_carry_over():
@@ -78,12 +104,20 @@ end_day_carry_over()
 with st.sidebar:
     st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
     
-    # API Key input (safe, sets session key)
-    api_key = st.text_input("🔑 Grok API Key (paste here for smart AI)", type="password", key="api_key_input")
+    # API Key input + Test button (clearer flow)
+    api_key = st.text_input("🔑 Grok API Key (paste here)", type="password", key="api_key_input")
     if api_key:
         st.session_state.grok_key = api_key
-        st.success("Key saved! Grok is now active. 💫")
-        st.rerun()
+        if st.button("Test & Activate Key", key="test_key_btn"):
+            test_key()
+    
+    # Show status
+    if st.session_state.key_valid:
+        st.success("🟢 Grok Active: Prompts will use real AI!")
+    elif st.session_state.grok_key:
+        st.warning("🟡 Key pasted—hit 'Test & Activate' to confirm.")
+    else:
+        st.info("🔴 Paste key + Test for real Grok smarts.")
     
     # Chat history
     for msg in st.session_state.ai_history[-8:]:

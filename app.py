@@ -2,9 +2,9 @@ import streamlit as st
 from datetime import datetime, timedelta
 import random
 import json
-import requests
+import openai
 
-# ────── SAFE SESSION STATE INIT ──────
+# ────── SESSION STATE INIT ──────
 defaults = {
     "tasks": [], "points": 0, "streak": 0,
     "last_date": datetime.now().date(),
@@ -15,45 +15,43 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ────── OPENAI CHAT (GPT-4o-mini) ──────
+# ────── OPENAI CHAT ──────
 def ai_chat(messages):
     key = st.session_state.get("openai_key", "")
     if not key or not st.session_state.get("key_valid", False):
         fallbacks = [
             f"Strong move, {st.session_state.user_name}! That one’s going to feel amazing checked off.",
-            f"You’re stacking wins like a pro, {st.session_state.user_name}. Keep the streak alive 🔥",
+            f"You’re stacking wins like a pro, {st.session_state.user_name}. Keep the streak alive",
             f"Quick nudge: any movement on the list today, {st.session_state.user_name}?",
             f"Tomorrow-you is already thanking you, {st.session_state.user_name}!"
         ]
         return random.choice(fallbacks)
 
     try:
-        import openai
         client = openai.OpenAI(api_key=key)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",          # Fast, cheap, super smart
+            model="gpt-4o-mini",
             messages=messages,
             temperature=0.8,
             max_tokens=150
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        st.error(f"OpenAI hiccup: {str(e)[:100]}… falling back to mock.")
+        st.error(f"OpenAI hiccup: {str(e)[:100]}…")
         return f"Hey {st.session_state.user_name}, coach is warming up. Mock mode on!"
 
-# Test key function
+# ────── TEST KEY ──────
 def test_openai_key():
     key = st.session_state.get("openai_key", "")
     if not key:
         st.error("Paste a key first!")
         return
     try:
-        import openai
         client = openai.OpenAI(api_key=key)
         client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "Say 'test ok'"}],
-            max_tokens=10
+            messages=[{"role": "user", "content": "Say 'ok'"}],
+            max_tokens=5
         )
         st.session_state.key_valid = True
         st.success("OpenAI key accepted! Real AI coach active")
@@ -62,7 +60,7 @@ def test_openai_key():
         st.session_state.key_valid = False
         st.error(f"Key failed: {str(e)[:120]}")
 
-# ────── CARRY-OVER LOGIC ──────
+# ────── CARRY-OVER ──────
 def end_day_carry_over():
     today = datetime.now().date()
     if st.session_state.last_date != today:
@@ -76,11 +74,38 @@ def end_day_carry_over():
         st.success("Day closed — unfinished rolled to tomorrow!")
         st.rerun()
 
-# ────── PAGE SETUP ──────
-st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
+# ────── VOICE INPUT COMPONENT ──────
+voice_html = """
+<script>
+const startBtn = window.parent.document.querySelector('button[kind="secondary"]');
+if (startBtn && !startBtn.dataset.voice) {
+    startBtn.dataset.voice = true;
+    const mic = document.createElement('button');
+    mic.innerHTML = 'Voice input';
+    mic.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:15px 20px;border-radius:50%;background:#ff4b4b;color:white;border:none;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:18px;';
+    mic.onclick = () => {
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = 'en-US';
+        recognition.start();
+        mic.innerHTML = 'Listening…';
+        recognition.onresult = (e) => {
+            const text = e.results[0][0].transcript;
+            window.parent.document.querySelector('input[aria-label="Voice result"]').value = text;
+            mic.innerHTML = 'Voice input';
+        };
+        recognition.onerror = () => mic.innerHTML = 'Voice input';
+        recognition.onend = () => mic.innerHTML = 'Voice input';
+    };
+    document.body.appendChild(mic);
+}
+</script>
+"""
+st.components.v1.html(voice_html, height=0, width=0)
+
+# ────── PAGE ──────
+st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
 st.title(f"Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
-# First-time name
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
     if st.button("Save Name") or name:
@@ -89,43 +114,37 @@ if st.session_state.user_name == "there":
 
 end_day_carry_over()
 
-# ────── SIDEBAR — AI COACH ──────
+# ────── SIDEBAR COACH ──────
 with st.sidebar:
     st.header(f"Dojo Master for {st.session_state.user_name}")
 
-    # OpenAI key input + test
-    api_key = st.text_input("OpenAI API Key (for real AI coach)", type="password", key="openai_input")
+    api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
         st.session_state.openai_key = api_key
         if st.button("Test & Activate Key"):
             test_openai_key()
 
-    # Status
     if st.session_state.key_valid:
         st.success("Real AI coach active!")
     elif st.session_state.openai_key:
         st.warning("Key pasted — hit Test & Activate")
-    else:
-        st.info("Paste OpenAI key → Test → Real coach unlocks")
 
-    # Chat history
     for msg in st.session_state.ai_history[-10:]:
         with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+            st.write(msg["content])
 
-    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach anything…")
+    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach…")
     if prompt:
         st.session_state.ai_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
 
         task_summary = "\n".join(f"- {'Completed' if t.get('completed') else 'Open'} {t['text']}" for t in st.session_state.tasks)
-        system_prompt = [
-            {"role": "system", "content": f"You are Dojo Master — a wise, fun, slightly cheeky productivity coach for {st.session_state.user_name}. "
-             f"Help with motivation, balance (especially fitness), and gentle nudges. Keep replies short, warm, and actionable. "
+        system = [
+            {"role": "system", "content": f"You are Dojo Master — wise, fun, cheeky coach for {st.session_state.user_name}. "
              f"Current streak: {st.session_state.streak} days | Points: {st.session_state.points}"},
-            {"role": "user", "content": f"Tasks:\n{task_summary or 'None yet'}\n\nUser says: {prompt}"}
+            {"role": "user", "content": f"Tasks:\n{task_summary or 'None'}\n\n{prompt}"}
         ]
-        reply = ai_chat(system_prompt)
+        reply = ai_chat(system)
         st.session_state.ai_history.append({"role": "assistant", "content": reply})
         with st.chat_message("assistant"): st.write(reply)
         st.rerun()
@@ -134,18 +153,27 @@ with st.sidebar:
     st.metric("Total Points", st.session_state.points)
     st.metric("Streak", f"{st.session_state.streak} days")
 
-# ────── MAIN TASK LIST ──────
+# ────── MAIN TASKS + VOICE ──────
 c1, c2 = st.columns([2, 1])
 
 with c1:
     st.subheader(f"Tomorrow’s Dojo — {(datetime.now() + timedelta(days=1)).strftime('%b %d, %Y')}")
 
+    # Voice result hidden input
+    voice_text = st.text_input("Voice result", key="voice_result", label_visibility="collapsed")
+
     with st.form("add_task", clear_on_submit=True):
-        new = st.text_input("New task", placeholder="e.g., 30 min workout, Call mom")
-        if st.form_submit_button("Add Task"):
-            if new.strip():
-                st.session_state.tasks.append({"text": new.strip(), "completed": False})
-                st.rerun()
+        new = st.text_input(
+            "New task",
+            placeholder="Type or tap Voice input on mobile → speak!",
+            value=voice_text
+        )
+        col_btn, col_voice = st.columns([1, 4])
+        with col_btn:
+            submitted = st.form_submit_button("Add Task")
+        if submitted and new.strip():
+            st.session_state.tasks.append({"text": new.strip(), "completed": False})
+            st.rerun()
 
     total = len(st.session_state.tasks)
     done = sum(1 for t in st.session_state.tasks if t.get("completed"))
@@ -171,4 +199,4 @@ with c2:
     if st.button("End Day & Carry Over", type="primary", use_container_width=True):
         end_day_carry_over()
 
-st.caption("Built with ❤️ by Grok & Abi — now powered by OpenAI GPT-4o-mini")
+st.caption("Built with ❤️ by Grok & Abi — now with voice input on mobile!")

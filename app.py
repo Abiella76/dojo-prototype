@@ -18,13 +18,51 @@ green = "#00ff88"
 
 st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 
-# ────── EPIC PROGRESS BAR CSS ──────
+# ────── STATE FIRST (so score exists before CSS) ──────
+defaults = {
+    "tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
+    "openai_key": "", "key_valid": False, "ai_history": []
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+if st.session_state.user_name == "there":
+    name = st.text_input("What should I call you?", placeholder="e.g., Abi")
+    if st.button("Enter Dojo") or name:
+        st.session_state.user_name = name.strip() or "Warrior"
+        st.balloons()
+        st.rerun()
+
+# Calendar + tasks + score
+today = date.today()
+selected_date = st.date_input("Pick day", value=today)
+date_str = selected_date.strftime("%Y-%m-%d")
+
+if date_str not in st.session_state.tasks_by_date:
+    st.session_state.tasks_by_date[date_str] = []
+
+tasks = st.session_state.tasks_by_date[date_str]
+total = len(tasks)
+done = sum(1 for t in tasks if t.get("completed", False))
+score = int(done/total*100) if total else 0
+
+# Streak
+if any(t.get("completed", False) for t in tasks):
+    st.session_state.streak_dates.add(date_str)
+streak = 0
+d = today
+while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
+    streak += 1
+    d -= timedelta(days=1)
+
+# ────── NOW INJECT CSS WITH REAL score VALUE ──────
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
     .sidebar .sidebar-content {{ background: {bg} }}
     .stButton > button {{ border-radius: 14px; font-weight: bold; padding: 10px 20px; }}
-    
+
     /* WIN BUTTON */
     .win-btn > button {{ 
         background: {green} !important; color: black !important; 
@@ -43,98 +81,42 @@ st.markdown(f"""
     }}
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
 
-    /* PROGRESS BAR */
+    /* EPIC PROGRESS BAR */
     .progress-container {{
-        width: 100%;
-        height: 50px;
-        background: rgba(255,255,255,0.1);
-        border-radius: 25px;
-        overflow: hidden;
-        box-shadow: inset 0 4px 10px rgba(0,0,0,0.4);
+        width: 100%; height: 60px; background: rgba(255,255,255,0.1);
+        border-radius: 30px; overflow: hidden; box-shadow: inset 0 4px 15px rgba(0,0,0,0.4);
         margin: 30px 0;
     }}
     .progress-fill {{
-        height: 100%;
-        width: {score}%;
+        height: 100%; width: {score}%;
         background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88);
-        border-radius: 25px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: bold;
-        color: white;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.6);
-        transition: width 1.2s cubic-bezier(0.65, 0, 0.35, 1);
-        box-shadow: 0 0 20px rgba(255,75,75,0.6);
-    }}
-    .progress-text {{
-        font-size: 32px;
-        font-weight: 900;
-        text-align: center;
-        color: {accent};
-        margin: 10px 0;
+        border-radius: 30px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 32px; font-weight: bold; color: white;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+        transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1);
+        box-shadow: 0 0 30px rgba(255,75,75,0.7);
     }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header + toggle
+# Header
 col1, col2 = st.columns([10,1])
 with col1:
-    st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.user_name}'s Life OS</h1>", unsafe_allow_html=True)
 with col2:
     if st.button("Moon" if theme == "dark" else "Sun", key="theme_btn"):
         toggle_theme()
         st.rerun()
 
-# ────── STATE ──────
-defaults = {"tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
-            "openai_key": "", "key_valid": False, "ai_history": []}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-if st.session_state.user_name == "there":
-    name = st.text_input("What should I call you?", placeholder="e.g., Abi")
-    if st.button("Enter Dojo") or name:
-        st.session_state.user_name = name.strip() or "Warrior"
-        st.balloons()
-        st.rerun()
-
-# Calendar
-today = date.today()
-selected_date = st.date_input("Pick day", value=today)
-date_str = selected_date.strftime("%Y-%m-%d")
-if date_str not in st.session_state.tasks_by_date:
-    st.session_state.tasks_by_date[date_str] = []
-
-tasks = st.session_state.tasks_by_date[date_str]
-total = len(tasks)
-done = sum(1 for t in tasks if t.get("completed", False))
-score = int(done/total*100) if total else 0
-
-# Streak
-if any(t.get("completed", False) for t in tasks):
-    st.session_state.streak_dates.add(date_str)
-streak = 0
-d = today
-while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
-    streak += 1
-    d -= timedelta(days=1)
-
-# ────── MAIN ──────
+# Main layout
 c1, c2 = st.columns([2,1])
 
 with c1:
     st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
 
-    # EPIC PROGRESS BAR
-    st.markdown(f"<div class='progress-text'>Daily Flow</div>", unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="progress-container">
-        <div class="progress-fill">{score}%</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # GORGEOUS PROGRESS BAR
+    st.markdown("<div class='progress-container'><div class='progress-fill'>{}%</div></div>".format(score), unsafe_allow_html=True)
 
     # Add task
     voice = st.text_input("", key="voice_result", label_visibility="collapsed")

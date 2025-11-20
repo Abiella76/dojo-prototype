@@ -1,7 +1,6 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import random
-import json
 import openai
 
 # ────── SESSION STATE INIT ──────
@@ -20,10 +19,10 @@ def ai_chat(messages):
     key = st.session_state.get("openai_key", "")
     if not key or not st.session_state.get("key_valid", False):
         fallbacks = [
-            f"Strong move, {st.session_state.user_name}! That one’s going to feel amazing checked off.",
-            f"You’re stacking wins like a pro, {st.session_state.user_name}. Keep the streak alive",
-            f"Quick nudge: any movement on the list today, {st.session_state.user_name}?",
-            f"Tomorrow-you is already thanking you, {st.session_state.user_name}!"
+            f"Strong move, {st.session_state.user_name}!",
+            f"Keep the streak alive, {st.session_state.user_name}",
+            f"Quick nudge from your coach, {st.session_state.user_name}!",
+            f"Tomorrow-you is proud, {st.session_state.user_name}!"
         ]
         return random.choice(fallbacks)
 
@@ -37,8 +36,8 @@ def ai_chat(messages):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        st.error(f"OpenAI hiccup: {str(e)[:100]}…")
-        return f"Hey {st.session_state.user_name}, coach is warming up. Mock mode on!"
+        st.error(f"OpenAI error: {str(e)[:100]}")
+        return "Coach is taking a quick breather — mock mode on!"
 
 # ────── TEST KEY ──────
 def test_openai_key():
@@ -74,37 +73,34 @@ def end_day_carry_over():
         st.success("Day closed — unfinished rolled to tomorrow!")
         st.rerun()
 
-# ────── VOICE INPUT COMPONENT ──────
+# ────── VOICE INPUT (mobile-friendly) ──────
 voice_html = """
 <script>
-const startBtn = window.parent.document.querySelector('button[kind="secondary"]');
-if (startBtn && !startBtn.dataset.voice) {
-    startBtn.dataset.voice = true;
     const mic = document.createElement('button');
     mic.innerHTML = 'Voice input';
-    mic.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:15px 20px;border-radius:50%;background:#ff4b4b;color:white;border:none;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:18px;';
+    mic.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:16px 20px;border-radius:50%;background:#ff4b4b;color:white;border:none;box-shadow:0 4px 20px rgba(0,0,0,0.3);font-size:18px;cursor:pointer;';
     mic.onclick = () => {
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
         recognition.lang = 'en-US';
+        recognition.interimResults = false;
         recognition.start();
         mic.innerHTML = 'Listening…';
-        recognition.onresult = (e) => {
-            const text = e.results[0][0].transcript;
-            window.parent.document.querySelector('input[aria-label="Voice result"]').value = text;
-            mic.innerHTML = 'Voice input';
+        recognition.onresult = (event) => {
+            const text = event.results[0][0].transcript;
+            const input = parent.document.querySelector('input[data-testid="stTextInput"]');
+            if (input) input.value = text;
         };
         recognition.onerror = () => mic.innerHTML = 'Voice input';
         recognition.onend = () => mic.innerHTML = 'Voice input';
     };
     document.body.appendChild(mic);
-}
 </script>
 """
 st.components.v1.html(voice_html, height=0, width=0)
 
 # ────── PAGE ──────
-st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
-st.title(f"Dojo — {st.session_state.user_name}'s Nightly Ritual")
+st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
+st.title(f"🥋 Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
@@ -116,7 +112,7 @@ end_day_carry_over()
 
 # ────── SIDEBAR COACH ──────
 with st.sidebar:
-    st.header(f"Dojo Master for {st.session_state.user_name}")
+    st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
 
     api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
@@ -125,23 +121,23 @@ with st.sidebar:
             test_openai_key()
 
     if st.session_state.key_valid:
-        st.success("Real AI coach active!")
+        st.success("🟢 Real AI coach active!")
     elif st.session_state.openai_key:
-        st.warning("Key pasted — hit Test & Activate")
+        st.warning("🟡 Key pasted — hit Test & Activate")
 
     for msg in st.session_state.ai_history[-10:]:
         with st.chat_message(msg["role"]):
-            st.write(msg["content])
+            st.write(msg["content"])
 
-    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach…")
+    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach anything…")
     if prompt:
         st.session_state.ai_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
 
-        task_summary = "\n".join(f"- {'Completed' if t.get('completed') else 'Open'} {t['text']}" for t in st.session_state.tasks)
+        task_summary = "\n".join(f"- {'✅' if t.get('completed') else '⭕'} {t['text']}" for t in st.session_state.tasks)
         system = [
-            {"role": "system", "content": f"You are Dojo Master — wise, fun, cheeky coach for {st.session_state.user_name}. "
-             f"Current streak: {st.session_state.streak} days | Points: {st.session_state.points}"},
+            {"role": "system", "content": f"Dojo Master — wise, fun, cheeky coach for {st.session_state.user_name}. "
+             f"Streak: {st.session_state.streak} days | Points: {st.session_state.points}"},
             {"role": "user", "content": f"Tasks:\n{task_summary or 'None'}\n\n{prompt}"}
         ]
         reply = ai_chat(system)
@@ -151,7 +147,7 @@ with st.sidebar:
 
     st.divider()
     st.metric("Total Points", st.session_state.points)
-    st.metric("Streak", f"{st.session_state.streak} days")
+    st.metric("Streak", f"{st.session_state.streak} days 🔥")
 
 # ────── MAIN TASKS + VOICE ──────
 c1, c2 = st.columns([2, 1])
@@ -159,21 +155,20 @@ c1, c2 = st.columns([2, 1])
 with c1:
     st.subheader(f"Tomorrow’s Dojo — {(datetime.now() + timedelta(days=1)).strftime('%b %d, %Y')}")
 
-    # Voice result hidden input
-    voice_text = st.text_input("Voice result", key="voice_result", label_visibility="collapsed")
+    # Hidden field that voice fills
+    voice_result = st.text_input("", key="voice_result", label_visibility="collapsed")
 
     with st.form("add_task", clear_on_submit=True):
-        new = st.text_input(
+        new_task = st.text_input(
             "New task",
-            placeholder="Type or tap Voice input on mobile → speak!",
-            value=voice_text
+            placeholder="Type or tap the red Voice input button → speak!",
+            value=voice_result
         )
-        col_btn, col_voice = st.columns([1, 4])
-        with col_btn:
-            submitted = st.form_submit_button("Add Task")
-        if submitted and new.strip():
-            st.session_state.tasks.append({"text": new.strip(), "completed": False})
-            st.rerun()
+        if st.form_submit_button("Add Task"):
+            if new_task.strip():
+                st.session_state.tasks.append({"text": new_task.strip(), "completed": False})
+                st.success("Task added!")
+                st.rerun()
 
     total = len(st.session_state.tasks)
     done = sum(1 for t in st.session_state.tasks if t.get("completed"))
@@ -199,4 +194,4 @@ with c2:
     if st.button("End Day & Carry Over", type="primary", use_container_width=True):
         end_day_carry_over()
 
-st.caption("Built with ❤️ by Grok & Abi — now with voice input on mobile!")
+st.caption("Built with ❤️ by Grok & Abi — voice input on mobile ready!")

@@ -98,8 +98,8 @@ voice_html = """
 st.components.v1.html(voice_html, height=0, width=0)
 
 # ────── PAGE ──────
-st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
-st.title(f"Dojo — {st.session_state.user_name}'s Nightly Ritual")
+st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
+st.title(f"🥋 Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
@@ -111,7 +111,7 @@ end_day_carry_over()
 
 # ────── SIDEBAR COACH (unchanged) ──────
 with st.sidebar:
-    st.header(f"Dojo Master for {st.session_state.user_name}")
+    st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
 
     api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
@@ -174,20 +174,19 @@ with c1:
     for i, task in enumerate(st.session_state.tasks.copy()):
         cols = st.columns([4, 1, 1])
 
-        # Editing mode
+        # Editing mode - No form, just text_input + buttons
         if st.session_state.editing_task == i:
-            with st.form(key=f"edit_form_{i}"):
-                edited_text = st.text_input("Edit task", value=task["text"], key=f"edit_input_{i}")
-                col_save, col_cancel = st.columns(2)
-                with col_save:
-                    if st.form_submit_button("Save"):
-                        st.session_state.tasks[i]["text"] = edited_text.strip()
-                        st.session_state.editing_task = None
-                        st.rerun()
-                with col_cancel:
-                    if st.button("Cancel", key=f"cancel_{i}"):
-                        st.session_state.editing_task = None
-                        st.rerun()
+            edited_text = st.text_input("Edit task", value=task["text"], key=f"edit_input_{i}")
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("Save", key=f"save_{i}"):
+                    st.session_state.tasks[i]["text"] = edited_text.strip()
+                    st.session_state.editing_task = None
+                    st.rerun()
+            with col_cancel:
+                if st.button("Cancel", key=f"cancel_{i}"):
+                    st.session_state.editing_task = None
+                    st.rerun()
 
         # Normal mode
         else:
@@ -218,4 +217,4 @@ with c2:
     if st.button("End Day & Carry Over", type="primary", use_container_width=True):
         end_day_carry_over()
 
-st.caption("Built with love by Grok & Abi — now with inline task editing + voice!")
+st.caption("Built with love by Grok & Abi — now with smooth inline task editing + voice!")

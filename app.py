@@ -8,13 +8,14 @@ defaults = {
     "tasks": [], "points": 0, "streak": 0,
     "last_date": datetime.now().date(),
     "ai_history": [], "user_name": "there",
-    "openai_key": "", "key_valid": False
+    "openai_key": "", "key_valid": False,
+    "editing_task": None  # for inline edit
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ────── OPENAI CHAT ──────
+# ────── OPENAI CHAT (unchanged) ──────
 def ai_chat(messages):
     key = st.session_state.get("openai_key", "")
     if not key or not st.session_state.get("key_valid", False):
@@ -39,7 +40,6 @@ def ai_chat(messages):
         st.error(f"OpenAI error: {str(e)[:100]}")
         return "Coach is taking a quick breather — mock mode on!"
 
-# ────── TEST KEY ──────
 def test_openai_key():
     key = st.session_state.get("openai_key", "")
     if not key:
@@ -59,7 +59,6 @@ def test_openai_key():
         st.session_state.key_valid = False
         st.error(f"Key failed: {str(e)[:120]}")
 
-# ────── CARRY-OVER ──────
 def end_day_carry_over():
     today = datetime.now().date()
     if st.session_state.last_date != today:
@@ -73,7 +72,7 @@ def end_day_carry_over():
         st.success("Day closed — unfinished rolled to tomorrow!")
         st.rerun()
 
-# ────── VOICE INPUT (mobile-friendly) ──────
+# ────── VOICE INPUT (mobile) ──────
 voice_html = """
 <script>
     const mic = document.createElement('button');
@@ -99,8 +98,8 @@ voice_html = """
 st.components.v1.html(voice_html, height=0, width=0)
 
 # ────── PAGE ──────
-st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
-st.title(f"🥋 Dojo — {st.session_state.user_name}'s Nightly Ritual")
+st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
+st.title(f"Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
@@ -110,9 +109,9 @@ if st.session_state.user_name == "there":
 
 end_day_carry_over()
 
-# ────── SIDEBAR COACH ──────
+# ────── SIDEBAR COACH (unchanged) ──────
 with st.sidebar:
-    st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
+    st.header(f"Dojo Master for {st.session_state.user_name}")
 
     api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
@@ -121,23 +120,22 @@ with st.sidebar:
             test_openai_key()
 
     if st.session_state.key_valid:
-        st.success("🟢 Real AI coach active!")
+        st.success("Real AI coach active!")
     elif st.session_state.openai_key:
-        st.warning("🟡 Key pasted — hit Test & Activate")
+        st.warning("Key pasted — hit Test & Activate")
 
     for msg in st.session_state.ai_history[-10:]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach anything…")
+    prompt = st.chat_input(f"Ask {st.session_state.user_name}'s coach…")
     if prompt:
         st.session_state.ai_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
 
-        task_summary = "\n".join(f"- {'✅' if t.get('completed') else '⭕'} {t['text']}" for t in st.session_state.tasks)
+        task_summary = "\n".join(f"- {'Completed' if t.get('completed') else 'Open'} {t['text']}" for t in st.session_state.tasks)
         system = [
-            {"role": "system", "content": f"Dojo Master — wise, fun, cheeky coach for {st.session_state.user_name}. "
-             f"Streak: {st.session_state.streak} days | Points: {st.session_state.points}"},
+            {"role": "system", "content": f"Wise, fun, cheeky Dojo Master for {st.session_state.user_name}. Streak: {st.session_state.streak} | Points: {st.session_state.points}"},
             {"role": "user", "content": f"Tasks:\n{task_summary or 'None'}\n\n{prompt}"}
         ]
         reply = ai_chat(system)
@@ -147,27 +145,25 @@ with st.sidebar:
 
     st.divider()
     st.metric("Total Points", st.session_state.points)
-    st.metric("Streak", f"{st.session_state.streak} days 🔥")
+    st.metric("Streak", f"{st.session_state.streak} days")
 
-# ────── MAIN TASKS + VOICE ──────
+# ────── MAIN TASKS + EDITING + VOICE ──────
 c1, c2 = st.columns([2, 1])
 
 with c1:
     st.subheader(f"Tomorrow’s Dojo — {(datetime.now() + timedelta(days=1)).strftime('%b %d, %Y')}")
 
-    # Hidden field that voice fills
     voice_result = st.text_input("", key="voice_result", label_visibility="collapsed")
 
     with st.form("add_task", clear_on_submit=True):
         new_task = st.text_input(
             "New task",
-            placeholder="Type or tap the red Voice input button → speak!",
+            placeholder="Type or tap red Voice input button → speak!",
             value=voice_result
         )
         if st.form_submit_button("Add Task"):
             if new_task.strip():
                 st.session_state.tasks.append({"text": new_task.strip(), "completed": False})
-                st.success("Task added!")
                 st.rerun()
 
     total = len(st.session_state.tasks)
@@ -177,21 +173,49 @@ with c1:
 
     for i, task in enumerate(st.session_state.tasks.copy()):
         cols = st.columns([4, 1, 1])
-        with cols[0]:
-            checked = st.checkbox(task["text"], value=task.get("completed", False), key=f"cb_{i}")
-            if checked and not task.get("completed", False):
-                task["completed"] = True
-                st.session_state.points += 10
-                st.balloons()
-                st.rerun()
-        with cols[2]:
-            if st.button("Delete", key=f"del_{i}"):
-                st.session_state.tasks.pop(i)
-                st.rerun()
+
+        # Editing mode
+        if st.session_state.editing_task == i:
+            with st.form(key=f"edit_form_{i}"):
+                edited_text = st.text_input("Edit task", value=task["text"], key=f"edit_input_{i}")
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.form_submit_button("Save"):
+                        st.session_state.tasks[i]["text"] = edited_text.strip()
+                        st.session_state.editing_task = None
+                        st.rerun()
+                with col_cancel:
+                    if st.button("Cancel", key=f"cancel_{i}"):
+                        st.session_state.editing_task = None
+                        st.rerun()
+
+        # Normal mode
+        else:
+            with cols[0]:
+                checked = st.checkbox(
+                    task["text"],
+                    value=task.get("completed", False),
+                    key=f"cb_{i}"
+                )
+                if checked and not task.get("completed", False):
+                    task["completed"] = True
+                    st.session_state.points += 10
+                    st.balloons()
+                    st.rerun()
+
+            with cols[1]:
+                if st.button("Edit", key=f"edit_{i}"):
+                    st.session_state.editing_task = i
+                    st.rerun()
+
+            with cols[2]:
+                if st.button("Delete", key=f"del_{i}"):
+                    st.session_state.tasks.pop(i)
+                    st.rerun()
 
 with c2:
     st.write(f"**Left:** {total - done}")
     if st.button("End Day & Carry Over", type="primary", use_container_width=True):
         end_day_carry_over()
 
-st.caption("Built with ❤️ by Grok & Abi — voice input on mobile ready!")
+st.caption("Built with love by Grok & Abi — now with inline task editing + voice!")

@@ -9,13 +9,13 @@ defaults = {
     "last_date": datetime.now().date(),
     "ai_history": [], "user_name": "there",
     "openai_key": "", "key_valid": False,
-    "editing_task": None  # for inline edit
+    "editing_task": None
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ────── OPENAI CHAT (unchanged) ──────
+# ────── OPENAI CHAT ──────
 def ai_chat(messages):
     key = st.session_state.get("openai_key", "")
     if not key or not st.session_state.get("key_valid", False):
@@ -72,7 +72,7 @@ def end_day_carry_over():
         st.success("Day closed — unfinished rolled to tomorrow!")
         st.rerun()
 
-# ────── VOICE INPUT (mobile) ──────
+# ────── VOICE INPUT ──────
 voice_html = """
 <script>
     const mic = document.createElement('button');
@@ -98,8 +98,8 @@ voice_html = """
 st.components.v1.html(voice_html, height=0, width=0)
 
 # ────── PAGE ──────
-st.set_page_config(page_title="Dojo", page_icon="🥋", layout="wide")
-st.title(f"🥋 Dojo — {st.session_state.user_name}'s Nightly Ritual")
+st.set_page_config(page_title="Dojo", page_icon="Dojo", layout="wide")
+st.title(f"Dojo — {st.session_state.user_name}'s Nightly Ritual")
 
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
@@ -109,10 +109,9 @@ if st.session_state.user_name == "there":
 
 end_day_carry_over()
 
-# ────── SIDEBAR COACH (unchanged) ──────
+# ────── SIDEBAR COACH ──────
 with st.sidebar:
-    st.header(f"🤖 Dojo Master for {st.session_state.user_name}")
-
+    st.header(f"Dojo Master for {st.session_state.user_name}")
     api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
         st.session_state.openai_key = api_key
@@ -132,7 +131,6 @@ with st.sidebar:
     if prompt:
         st.session_state.ai_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
-
         task_summary = "\n".join(f"- {'Completed' if t.get('completed') else 'Open'} {t['text']}" for t in st.session_state.tasks)
         system = [
             {"role": "system", "content": f"Wise, fun, cheeky Dojo Master for {st.session_state.user_name}. Streak: {st.session_state.streak} | Points: {st.session_state.points}"},
@@ -147,7 +145,7 @@ with st.sidebar:
     st.metric("Total Points", st.session_state.points)
     st.metric("Streak", f"{st.session_state.streak} days")
 
-# ────── MAIN TASKS + EDITING + VOICE ──────
+# ────── MAIN TASKS ──────
 c1, c2 = st.columns([2, 1])
 
 with c1:
@@ -156,11 +154,7 @@ with c1:
     voice_result = st.text_input("", key="voice_result", label_visibility="collapsed")
 
     with st.form("add_task", clear_on_submit=True):
-        new_task = st.text_input(
-            "New task",
-            placeholder="Type or tap red Voice input button → speak!",
-            value=voice_result
-        )
+        new_task = st.text_input("New task", placeholder="Type or tap red Voice input button → speak!", value=voice_result)
         if st.form_submit_button("Add Task"):
             if new_task.strip():
                 st.session_state.tasks.append({"text": new_task.strip(), "completed": False})
@@ -174,7 +168,7 @@ with c1:
     for i, task in enumerate(st.session_state.tasks.copy()):
         cols = st.columns([4, 1, 1])
 
-        # Editing mode - No form, just text_input + buttons
+        # Editing mode
         if st.session_state.editing_task == i:
             edited_text = st.text_input("Edit task", value=task["text"], key=f"edit_input_{i}")
             col_save, col_cancel = st.columns(2)
@@ -191,15 +185,17 @@ with c1:
         # Normal mode
         else:
             with cols[0]:
-                checked = st.checkbox(
-                    task["text"],
-                    value=task.get("completed", False),
-                    key=f"cb_{i}"
-                )
-                if checked and not task.get("completed", False):
-                    task["completed"] = True
-                    st.session_state.points += 10
-                    st.balloons()
+                # Fully dynamic checkbox: check AND uncheck update points + score
+                was_completed = task.get("completed", False)
+                checked = st.checkbox(task["text"], value=was_completed, key=f"cb_{i}")
+
+                if checked != was_completed:
+                    task["completed"] = checked
+                    if checked:
+                        st.session_state.points += 10
+                        st.balloons()
+                    else:
+                        st.session_state.points = max(0, st.session_state.points - 10)  # prevent negative
                     st.rerun()
 
             with cols[1]:
@@ -217,4 +213,4 @@ with c2:
     if st.button("End Day & Carry Over", type="primary", use_container_width=True):
         end_day_carry_over()
 
-st.caption("Built with love by Grok & Abi — now with smooth inline task editing + voice!")
+st.caption("Built with love by Grok & Abi — now with fully dynamic check/uncheck!")

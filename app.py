@@ -4,17 +4,17 @@ import random
 import openai
 
 # ────── THEME ──────
-if "theme = st.session_state.theme if "theme" in st.session_state else "dark"
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
 def toggle_theme():
     st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
 
+theme = st.session_state.theme
 bg = "#0e1117" if theme == "dark" else "#ffffff"
 text_color = "#fafafa" if theme == "dark" else "#1e1e1e"
 accent = "#ff4b4b"
-green = "#00ff9d"
+green = "#00ff88"
 
 st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 
@@ -22,17 +22,16 @@ st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
     .sidebar .sidebar-content {{ background: {bg} }}
-    .stButton>button {{ border-radius: 14px; font-weight: bold; }}
+    .stButton > button {{ border-radius: 14px; font-weight: bold; padding: 10px 20px; }}
     .win-btn > button {{ 
         background: {green} !important; 
         color: black !important; 
-        font-size: 18px; 
-        padding: 12px 24px; 
-        box-shadow: 0 6px 0 #00bfff00;
-        transition: all 0.2s;
+        font-size: 18px !important;
+        font-weight: bold !important;
+        box-shadow: 0 6px 0 #00cc66 !important;
     }}
-    .win-btn > button:hover {{ transform: translateY(2px); box-shadow: 0 4px 0 #bfff00; }}
-    .win-btn > button:active {{ transform: translateY(6px); box-shadow: 0 0 0 #bfff00; }}
+    .win-btn > button:hover {{ transform: translateY(2px); }}
+    .win-btn > button:active {{ transform: translateY(6px); box-shadow: 0 0px !important; }}
     .task-card {{ 
         padding: 18px; 
         margin: 14px 0; 
@@ -41,31 +40,33 @@ st.markdown(f"""
         border-left: 7px solid {accent}; 
         box-shadow: 0 6px 20px rgba(0,0,0,0.3);
         color: {text_color};
-        transition: all 0.4s;
+        transition: all 0.3s;
     }}
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
-    .big-score {{ font-size: 90px; font-weight: 900; text-align: center; color: {accent}; }}
+    .big-score {{ font-size: 90px; font-weight: 900; text-align: center; color: {accent}; margin: 30px 0; }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header
+# Header + theme toggle
 col1, col2 = st.columns([10,1])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
 with col2:
-    if st.button("Moon" if theme == "dark" else "Sun", key="theme"):
+    if st.button("Moon" if theme == "dark" else "Sun", key="theme_btn"):
         toggle_theme()
         st.rerun()
 
 # ────── STATE ──────
-defaults = {"tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
-            "openai_key": "", "key_valid": False, "ai_history": []}
+defaults = {
+    "tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
+    "openai_key": "", "key_valid": False, "ai_history": []
+}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 if st.session_state.user_name == "there":
-    name = st.text_input("Name?", placeholder="e.g., Abi")
+    name = st.text_input("What should I call you?", placeholder="e.g., Abi")
     if st.button("Enter Dojo") or name:
         st.session_state.user_name = name.strip() or "Warrior"
         st.balloons()
@@ -80,19 +81,19 @@ if date_str not in st.session_state.tasks_by_date:
 
 tasks = st.session_state.tasks_by_date[date_str]
 total = len(tasks)
-done = sum(1 for t in tasks if t.get("completed"))
+done = sum(1 for t in tasks if t.get("completed", False))
 score = int(done/total*100) if total else 0
 
 # Streak
-if any(t.get("completed") for t in tasks):
+if any(t.get("completed", False) for t in tasks):
     st.session_state.streak_dates.add(date_str)
 streak = 0
 d = today
 while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
     streak += 1
- d -= timedelta(days=1)
+    d -= timedelta(days=1)
 
-# Main
+# Main layout
 c1, c2 = st.columns([2,1])
 
 with c1:
@@ -107,24 +108,24 @@ with c1:
             tasks.append({"text": new.strip(), "completed": False})
             st.rerun()
 
-    # TASKS WITH BIG GREEN BUTTON
+    # TASKS WITH BIG GREEN WIN BUTTON
     for i, task in enumerate(tasks.copy()):
         completed = task.get("completed", False)
         card_class = "task-card completed" if completed else "task-card"
 
         st.markdown(f"<div class='{card_class}'>", unsafe_allow_html=True)
-        cols = st.columns([6,2,1])
+        cols = st.columns([6, 2, 1])
 
         with cols[0]:
-            st.markdown(f"**{task['text']}**")
+            st.markdown(f"### {task['text']}")
 
         with cols[1]:
             if completed:
-                st.success("Done")
+                st.success("DONE")
             else:
-                if st.button("Complete", key=f"win_{date_str}_{i}", help="Smash it!"):
+                if st.button("Complete", key=f"win_{date_str}_{i}"):
                     task["completed"] = True
-                    if score == 90 and total > 0:  # will become 100%
+                    if done + 1 == total and total > 0:
                         st.confetti()
                     else:
                         st.balloons()
@@ -145,23 +146,23 @@ with c2:
     st.write(f"**Left:** {total - done}")
 
     if st.button("Clear completed"):
-        st.session_state.tasks_by_date[date_str] = [t for t in tasks if not t.get("completed")]
+        st.session_state.tasks_by_date[date_str] = [t for t in tasks if not t.get("completed", False)]
         st.rerun()
 
     st.divider()
     api_key = st.text_input("OpenAI Key", type="password")
-    if api_key and st.button("Activate AI"):
+    if api_key and st.button("Activate Real AI"):
         try:
             openai.OpenAI(api_key=api_key).chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":"hi"}], max_tokens=5)
             st.session_state.openai_key = api_key
             st.session_state.key_valid = True
             st.success("AI Master Awakened")
         except:
-            st.error("Bad key")
+            st.error("Invalid key")
 
     if prompt := st.chat_input("Ask coach…"):
-        reply = "Legendary!" if not st.session_state.get("key_valid") else "One sec…"
+        reply = "Crushing it!" if not st.session_state.get("key_valid") else "One moment…"
         with st.chat_message("assistant"):
             st.write(reply)
 
-st.caption("v7.0 — Big Green Win Buttons + pure dopamine")
+st.caption("v7.0 — Big Green Win Buttons = pure dopamine")

@@ -9,7 +9,7 @@ defaults = {
     "points": 0,
     "streak_dates": set(),
     "user_name": "there",
-    "openai_key": "", 
+    "openai_key": "",
     "key_valid": False,
     "editing_task": None,
     "ai_history": []
@@ -79,14 +79,15 @@ voice_html = """
 st.components.v1.html(voice_html, height=0, width=0)
 
 # ────── PAGE SETUP ──────
-st.set_page_config(page_title="Dojo Calendar", page_icon="Dojo", layout="wide")
+st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 st.title(f"Dojo Calendar — {st.session_state.user_name}'s Life OS")
 
+# Name entry (fixed indentation)
 if st.session_state.user_name == "there":
     name = st.text_input("First, what should I call you?", placeholder="e.g., Abi")
- if st.button("Save Name") or name:
-     st.session_state.user_name = name.strip() or "Warrior"
-     st.rerun()
+    if st.button("Save Name") or name:
+        st.session_state.user_name = name.strip() or "Warrior"
+        st.rerun()
 
 # ────── CALENDAR & DATE SELECTION ──────
 today = date.today()
@@ -101,7 +102,7 @@ total = len(tasks)
 done = sum(1 for t in tasks if t.get("completed"))
 score = int(done/total*100) if total else 0
 
-# Streak logic
+# Streak: any completed task on a day counts
 if any(t.get("completed") for t in tasks):
     st.session_state.streak_dates.add(date_str)
 
@@ -113,14 +114,14 @@ while check_date.strftime("%Y-%m-%d") in st.session_state.streak_dates:
 
 # ────── SIDEBAR COACH ──────
 with st.sidebar:
-    st.header(f"Dojo Master")
+    st.header("Dojo Master")
     api_key = st.text_input("OpenAI API Key", type="password", key="openai_input")
     if api_key:
         st.session_state.openai_key = api_key
         if st.button("Test & Activate Key"):
             test_openai_key()
 
-    st.write("Real AI active!" if st.session_state.key_valid else "Paste key to unlock real coach")
+    st.write("Real AI active!" if st.session_state.key_valid else "Paste key → Test")
 
     for msg in st.session_state.ai_history[-10:]:
         with st.chat_message(msg["role"]):
@@ -130,8 +131,8 @@ with st.sidebar:
     if prompt:
         task_summary = "\n".join(f"- {'Completed' if t.get('completed') else 'Open'} {t['text']}" for t in tasks)
         system = [
-            {"role": "system", "content": f"You are Dojo Master for {st.session_state.user_name}. Planning {selected_date.strftime('%A, %b %d')}. Streak: {streak} days."},
-            {"role": "user", "content": f"Tasks:\n{task_summary or 'None'}\n\n{prompt"}
+            {"role": "system", "content": f"Dojo Master for {st.session_state.user_name}. Planning {selected_date.strftime('%A, %b %d')}. Streak: {streak} days."},
+            {"role": "user", "content": f"Tasks:\n{task_summary or 'None'}\n\n{prompt}"}
         ]
         reply = ai_chat(system)
         st.session_state.ai_history.append({"role": "assistant", "content": reply})

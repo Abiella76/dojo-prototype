@@ -4,72 +4,76 @@ import random
 import openai
 
 # ────── THEME ──────
+if "theme = st.session_state.theme if "theme" in st.session_state else "dark"
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
 def toggle_theme():
     st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
 
-theme = st.session_state.theme
 bg = "#0e1117" if theme == "dark" else "#ffffff"
 text_color = "#fafafa" if theme == "dark" else "#1e1e1e"
 accent = "#ff4b4b"
+green = "#00ff9d"
 
 st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 
-# ────── CSS ──────
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
     .sidebar .sidebar-content {{ background: {bg} }}
-    .stButton>button {{ background: {accent}; color: white; border: none; border-radius: 12px; padding: 10px 20px; }}
+    .stButton>button {{ border-radius: 14px; font-weight: bold; }}
+    .win-btn > button {{ 
+        background: {green} !important; 
+        color: black !important; 
+        font-size: 18px; 
+        padding: 12px 24px; 
+        box-shadow: 0 6px 0 #00bfff00;
+        transition: all 0.2s;
+    }}
+    .win-btn > button:hover {{ transform: translateY(2px); box-shadow: 0 4px 0 #bfff00; }}
+    .win-btn > button:active {{ transform: translateY(6px); box-shadow: 0 0 0 #bfff00; }}
     .task-card {{ 
-        padding: 16px; 
-        margin: 12px 0; 
-        border-radius: 16px; 
+        padding: 18px; 
+        margin: 14px 0; 
+        border-radius: 18px; 
         background: rgba(255,75,75,0.1); 
-        border-left: 6px solid {accent}; 
-        box-shadow: 0 4px 20px rgba(0,0,0,0.25);
-        color: {text_color} !important;
+        border-left: 7px solid {accent}; 
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        color: {text_color};
+        transition: all 0.4s;
     }}
-    .task-card.completed {{ 
-        opacity: 0.7; 
-        text-decoration: line-through;
-    }}
-    .big-score {{ font-size: 80px; font-weight: bold; text-align: center; color: {accent}; margin: 30px 0; }}
-    .stCheckbox > label {{ color: {text_color} !important; }}
+    .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
+    .big-score {{ font-size: 90px; font-weight: 900; text-align: center; color: {accent}; }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header + toggle
+# Header
 col1, col2 = st.columns([10,1])
 with col1:
-    st.markdown(f"<h1 style='color:{accent}; margin:0;'>Dojo Calendar — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
 with col2:
-    if st.button("Moon" if theme == "dark" else "Sun", key="theme_btn"):
+    if st.button("Moon" if theme == "dark" else "Sun", key="theme"):
         toggle_theme()
         st.rerun()
 
-# ────── SESSION STATE ──────
-defaults = {
-    "tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
-    "openai_key": "", "key_valid": False, "editing_task": None, "ai_history": []
-}
+# ────── STATE ──────
+defaults = {"tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
+            "openai_key": "", "key_valid": False, "ai_history": []}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# Name
 if st.session_state.user_name == "there":
-    name = st.text_input("What should I call you, warrior?", placeholder="e.g., Abi")
-    if st.button("Enter the Dojo") or name:
+    name = st.text_input("Name?", placeholder="e.g., Abi")
+    if st.button("Enter Dojo") or name:
         st.session_state.user_name = name.strip() or "Warrior"
         st.balloons()
         st.rerun()
 
 # Calendar
 today = date.today()
-selected_date = st.date_input("Choose your day", value=today)
+selected_date = st.date_input("Pick day", value=today)
 date_str = selected_date.strftime("%Y-%m-%d")
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
@@ -86,9 +90,9 @@ streak = 0
 d = today
 while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
     streak += 1
-    d -= timedelta(days=1)
+ d -= timedelta(days=1)
 
-# ────── MAIN AREA ──────
+# Main
 c1, c2 = st.columns([2,1])
 
 with c1:
@@ -98,55 +102,42 @@ with c1:
     # Add task
     voice = st.text_input("", key="voice_result", label_visibility="collapsed")
     with st.form("add", clear_on_submit=True):
-        new = st.text_input("Add task", placeholder="Speak or type → Add", value=voice)
-        if st.form_submit_button("Add") and new.strip():
+        new = st.text_input("New task", placeholder="Speak or type → Add", value=voice)
+        if st.form_submit_button("Add Task") and new.strip():
             tasks.append({"text": new.strip(), "completed": False})
             st.rerun()
 
-    # Tasks — NOW VISIBLE!
+    # TASKS WITH BIG GREEN BUTTON
     for i, task in enumerate(tasks.copy()):
         completed = task.get("completed", False)
         card_class = "task-card completed" if completed else "task-card"
 
         st.markdown(f"<div class='{card_class}'>", unsafe_allow_html=True)
-        cols = st.columns([5,1,1])
+        cols = st.columns([6,2,1])
 
-        if st.session_state.editing_task == f"{date_str}_{i}":
-            edited = st.text_input("Edit task", value=task["text"], key=f"e_{date_str}_{i}")
-            sa, ca = st.columns(2)
-            with sa:
-                if st.button("Save", key=f"s_{date_str}_{i}"):
-                    tasks[i]["text"] = edited.strip()
-                    st.session_state.editing_task = None
-                    st.rerun()
-            with ca:
-                if st.button("Cancel", key=f"c_{date_str}_{i}"):
-                    st.session_state.editing_task = None
-                    st.rerun()
-        else:
-            with cols[0]:
-                # THIS LINE FIXED — no more collapsed label!
-                checked = st.checkbox(task["text"], value=completed, key=f"cb_{date_str}_{i}")
-                if checked != completed:
-                    task["completed"] = checked
-                    if checked and score == 100 and total > 0:
+        with cols[0]:
+            st.markdown(f"**{task['text']}**")
+
+        with cols[1]:
+            if completed:
+                st.success("Done")
+            else:
+                if st.button("Complete", key=f"win_{date_str}_{i}", help="Smash it!"):
+                    task["completed"] = True
+                    if score == 90 and total > 0:  # will become 100%
                         st.confetti()
-                    elif checked:
+                    else:
                         st.balloons()
                     st.rerun()
 
-            with cols[1]:
-                if st.button("Edit", key=f"edit_{date_str}_{i}"):
-                    st.session_state.editing_task = f"{date_str}_{i}"
-                    st.rerun()
-            with cols[2]:
-                if st.button("Delete", key=f"del_{date_str}_{i}"):
-                    tasks.pop(i)
-                    st.rerun()
+        with cols[2]:
+            if st.button("Delete", key=f"del_{date_str}_{i}"):
+                tasks.pop(i)
+                st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ────── SIDEBAR (cleaned up) ──────
+# Sidebar
 with c2:
     st.markdown("### Dojo Master")
     st.metric("Streak", f"{streak} days")
@@ -166,12 +157,11 @@ with c2:
             st.session_state.key_valid = True
             st.success("AI Master Awakened")
         except:
-            st.error("Invalid key")
+            st.error("Bad key")
 
-    if prompt := st.chat_input(f"Ask about {selected_date.strftime('%b %d')}…"):
-        reply = "You're crushing it!" if not st.session_state.get("key_valid") else "Thinking..."
+    if prompt := st.chat_input("Ask coach…"):
+        reply = "Legendary!" if not st.session_state.get("key_valid") else "One sec…"
         with st.chat_message("assistant"):
             st.write(reply)
-        st.session_state.ai_history.append({"role": "assistant", "content": reply})
 
-st.caption("Built with love by Grok & you — Task text 100% visible v6.2")
+st.caption("v7.0 — Big Green Win Buttons + pure dopamine")

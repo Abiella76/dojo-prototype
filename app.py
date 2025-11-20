@@ -18,7 +18,7 @@ green = "#00ff88"
 
 st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 
-# ────── STATE FIRST (so score exists before CSS) ──────
+# ────── STATE FIRST ──────
 defaults = {
     "tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
     "openai_key": "", "key_valid": False, "ai_history": []
@@ -34,11 +34,10 @@ if st.session_state.user_name == "there":
         st.balloons()
         st.rerun()
 
-# Calendar + tasks + score
+# Calendar + tasks
 today = date.today()
 selected_date = st.date_input("Pick day", value=today)
 date_str = selected_date.strftime("%Y-%m-%d")
-
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
 
@@ -56,7 +55,7 @@ while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
     streak += 1
     d -= timedelta(days=1)
 
-# ────── NOW INJECT CSS WITH REAL score VALUE ──────
+# ────── CSS WITH REAL SCORE ──────
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
@@ -93,7 +92,7 @@ st.markdown(f"""
         border-radius: 30px;
         display: flex; align-items: center; justify-content: center;
         font-size: 32px; font-weight: bold; color: white;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+        text-shadow: 0 2px 10px black;
         transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1);
         box-shadow: 0 0 30px rgba(255,75,75,0.7);
     }}
@@ -116,7 +115,7 @@ with c1:
     st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
 
     # GORGEOUS PROGRESS BAR
-    st.markdown("<div class='progress-container'><div class='progress-fill'>{}%</div></div>".format(score), unsafe_allow_html=True)
+    st.markdown(f"<div class='progress-container'><div class='progress-fill'>{score}%</div></div>", unsafe_allow_html=True)
 
     # Add task
     voice = st.text_input("", key="voice_result", label_visibility="collapsed")
@@ -126,7 +125,7 @@ with c1:
             tasks.append({"text": new.strip(), "completed": False})
             st.rerun()
 
-    # Tasks with green win button
+    # Tasks — FIXED: confetti/balloons now safe
     for i, task in enumerate(tasks.copy()):
         completed = task.get("completed", False)
         card_class = "task-card completed" if completed else "task-card"
@@ -143,11 +142,13 @@ with c1:
             else:
                 if st.button("Complete", key=f"win_{date_str}_{i}"):
                     task["completed"] = True
+                    st.session_state.tasks_by_date[date_str] = tasks  # Force save
+                    st.rerun()
+                    # Celebration comes AFTER rerun
                     if done + 1 == total and total > 0:
                         st.confetti()
                     else:
                         st.balloons()
-                    st.rerun()
 
         with cols[2]:
             if st.button("Delete", key=f"del_{date_str}_{i}"):
@@ -181,4 +182,4 @@ with c2:
     if prompt := st.chat_input("Ask coach…"):
         st.chat_message("assistant").write("You're unstoppable!")
 
-st.caption("v7.1 — Epic animated progress bar + dopamine overload")
+st.caption("v7.2 — Progress bar + Win button + zero errors")

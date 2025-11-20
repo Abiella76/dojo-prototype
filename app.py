@@ -18,36 +18,67 @@ green = "#00ff88"
 
 st.set_page_config(page_title="Dojo Calendar", page_icon="Calendar", layout="wide")
 
+# ────── EPIC PROGRESS BAR CSS ──────
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
     .sidebar .sidebar-content {{ background: {bg} }}
     .stButton > button {{ border-radius: 14px; font-weight: bold; padding: 10px 20px; }}
+    
+    /* WIN BUTTON */
     .win-btn > button {{ 
-        background: {green} !important; 
-        color: black !important; 
-        font-size: 18px !important;
-        font-weight: bold !important;
+        background: {green} !important; color: black !important; 
+        font-size: 18px !important; font-weight: bold !important;
         box-shadow: 0 6px 0 #00cc66 !important;
     }}
     .win-btn > button:hover {{ transform: translateY(2px); }}
-    .win-btn > button:active {{ transform: translateY(6px); box-shadow: 0 0px !important; }}
+    .win-btn > button:active {{ transform: translateY(6px); box-shadow: none !important; }}
+
+    /* TASK CARD */
     .task-card {{ 
-        padding: 18px; 
-        margin: 14px 0; 
-        border-radius: 18px; 
-        background: rgba(255,75,75,0.1); 
-        border-left: 7px solid {accent}; 
-        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-        color: {text_color};
+        padding: 18px; margin: 14px 0; border-radius: 18px; 
+        background: rgba(255,75,75,0.1); border-left: 7px solid {accent}; 
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3); color: {text_color};
         transition: all 0.3s;
     }}
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
-    .big-score {{ font-size: 90px; font-weight: 900; text-align: center; color: {accent}; margin: 30px 0; }}
+
+    /* PROGRESS BAR */
+    .progress-container {{
+        width: 100%;
+        height: 50px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 25px;
+        overflow: hidden;
+        box-shadow: inset 0 4px 10px rgba(0,0,0,0.4);
+        margin: 30px 0;
+    }}
+    .progress-fill {{
+        height: 100%;
+        width: {score}%;
+        background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88);
+        border-radius: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: bold;
+        color: white;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+        transition: width 1.2s cubic-bezier(0.65, 0, 0.35, 1);
+        box-shadow: 0 0 20px rgba(255,75,75,0.6);
+    }}
+    .progress-text {{
+        font-size: 32px;
+        font-weight: 900;
+        text-align: center;
+        color: {accent};
+        margin: 10px 0;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header + theme toggle
+# Header + toggle
 col1, col2 = st.columns([10,1])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
@@ -57,10 +88,8 @@ with col2:
         st.rerun()
 
 # ────── STATE ──────
-defaults = {
-    "tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
-    "openai_key": "", "key_valid": False, "ai_history": []
-}
+defaults = {"tasks_by_date": {}, "streak_dates": set(), "user_name": "there",
+            "openai_key": "", "key_valid": False, "ai_history": []}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -93,12 +122,19 @@ while d.strftime("%Y-%m-%d") in st.session_state.streak_dates:
     streak += 1
     d -= timedelta(days=1)
 
-# Main layout
+# ────── MAIN ──────
 c1, c2 = st.columns([2,1])
 
 with c1:
     st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
-    st.markdown(f"<div class='big-score'>{score}%</div>", unsafe_allow_html=True)
+
+    # EPIC PROGRESS BAR
+    st.markdown(f"<div class='progress-text'>Daily Flow</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="progress-container">
+        <div class="progress-fill">{score}%</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Add task
     voice = st.text_input("", key="voice_result", label_visibility="collapsed")
@@ -108,7 +144,7 @@ with c1:
             tasks.append({"text": new.strip(), "completed": False})
             st.rerun()
 
-    # TASKS WITH BIG GREEN WIN BUTTON
+    # Tasks with green win button
     for i, task in enumerate(tasks.copy()):
         completed = task.get("completed", False)
         card_class = "task-card completed" if completed else "task-card"
@@ -161,8 +197,6 @@ with c2:
             st.error("Invalid key")
 
     if prompt := st.chat_input("Ask coach…"):
-        reply = "Crushing it!" if not st.session_state.get("key_valid") else "One moment…"
-        with st.chat_message("assistant"):
-            st.write(reply)
+        st.chat_message("assistant").write("You're unstoppable!")
 
-st.caption("v7.0 — Big Green Win Buttons = pure dopamine")
+st.caption("v7.1 — Epic animated progress bar + dopamine overload")

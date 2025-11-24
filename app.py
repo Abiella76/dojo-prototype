@@ -28,12 +28,12 @@ st.markdown(f"""
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
     .progress-fill {{ height: 100%; width: {{score}}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
-    .note-display {{ background: rgba(51,153,255,0.2); padding: 14px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; font-size: 15px; }}
+    .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; font-size: 15px; line-height: 1.5; }}
 </style>
 """, unsafe_allow_html=True)
 
-# ────── HEADER + BACKUP/RESTORE (FIXED: NO INFINITE SPINNER) ──────
-col1, col2, col3 = st.columns([7, 1, 4])
+# Header + Backup
+col1, col2, col3 = st.columns([7,1,4])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
 with col2:
@@ -47,14 +47,9 @@ with col3:
         "streak_dates": list(st.session_state.get("streak_dates", set())),
         "theme": theme
     }
-    st.download_button(
-        "Download Backup",
-        data=json.dumps(backup_data, indent=2),
-        file_name=f"dojo_backup_{date.today()}.json",
-        mime="application/json"
-    )
+    st.download_button("Download Backup", json.dumps(backup_data, indent=2), f"dojo_backup_{date.today()}.json", "application/json")
 
-# Upload backup — FIXED: uses a flag instead of key
+# Restore — stable
 if "restore_triggered" not in st.session_state:
     st.session_state.restore_triggered = False
 
@@ -63,21 +58,18 @@ if uploaded and not st.session_state.restore_triggered:
     st.session_state.restore_triggered = True
     try:
         data = json.load(uploaded)
-        st.session_state.user_name = data.get("user_name", "Warrior")
-        st.session_state.tasks_by_date = data.get("tasks_by_date", {})
-        st.session_state.streak_dates = set(data.get("streak_dates", []))
-        st.session_state.theme = data.get("theme", "dark")
+        st.session_state.update(data)
+        if "streak_dates" in data:
+            st.session_state.streak_dates = set(data["streak_dates"])
         st.success("Backup restored perfectly!")
         st.rerun()
-    except Exception as e:
-        st.error(f"Invalid backup file: {e}")
+    except:
+        st.error("Invalid backup file")
         st.session_state.restore_triggered = False
-
-# Reset flag after successful load
-if st.session_state.restore_triggered and uploaded is None:
+if uploaded is None:
     st.session_state.restore_triggered = False
 
-# ────── DATA INIT ──────
+# Init data
 for k in ["user_name", "tasks_by_date", "streak_dates"]:
     if k not in st.session_state:
         st.session_state[k] = {"user_name": "Warrior", "tasks_by_date": {}, "streak_dates": set()}[k]
@@ -89,14 +81,14 @@ if st.session_state.user_name == "Warrior":
         st.balloons()
         st.rerun()
 
-# Calendar + Carry-over + Score + Streak (unchanged, perfect)
+# Calendar + Carry-over
 today = date.today()
 selected_date = st.date_input("Day", value=today)
 date_str = selected_date.strftime("%Y-%m-%d")
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
 
-# Carry-over
+# Carry over incomplete
 for offset in range(1, 31):
     past = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
     if past in st.session_state.tasks_by_date:
@@ -125,8 +117,8 @@ while True:
 if done > 0:
     st.session_state.streak_dates.add(date_str)
 
-# ────── MAIN UI (unchanged — notes, buttons, everything works) ──────
-c1, c2 = st.columns([2, 1])
+# Main UI
+c1, c2 = st.columns([2,1])
 with c1:
     st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
     st.markdown(f"<div class='progress-container'><div class='progress-fill'>{score}%</div></div>", unsafe_allow_html=True)
@@ -160,41 +152,50 @@ with c1:
                         st.balloons()
 
         with cols[2]:
-            if st.button("Notes", key=f"notesbtn_{date_str}_{i}"):
-                st.session_state[f"show_notes_{date_str}_{i}"] = not st.session_state.get(f"show_notes_{date_str}_{i}", bool(notes))
+            if st.button("Notes", key=f"notes_{date_str}_{i}"):
+                st.session_state[f"editing_notes_{date_str}_{i}"] = True
 
         with cols[3]:
-            if st.button("Edit", key=f"editbtn_{date_str}_{i}"):
-                st.session_state[f"editing_{date_str}_{i}"] = True
+            if st.button("Edit", key=f"edit_{date_str}_{i}"):
+                st.session_state[f"editing_task_{date_str}_{i}"] = True
 
         with cols[4]:
             if st.button("Delete", key=f"del_{date_str}_{i}"):
                 tasks.pop(i)
                 st.rerun()
 
-        # Notes
-        show_notes = st.session_state.get(f"show_notes_{date_str}_{i}", bool(notes))
-        if show_notes or notes:
-            current_note = st.text_area("Notes", value=notes, key=f"note_input_{date_str}_{i}", height=120, label_visibility="collapsed")
-            if st.button("Save Notes", key=f"save_notes_{date_str}_{i}"):
-                task["notes"] = current_note
-                st.session_state[f"show_notes_{date_str}_{i}"] = False
-                st.rerun()
-            if notes:
-                st.markdown(f"<div class='note-display'><strong>Note:</strong> {notes}</div>", unsafe_allow_html=True)
+        # === NOTES: CLEAN & PERFECT ===
+        is_editing_notes = st.session_state.get(f"editing_notes_{date_str}_{i}", False)
 
-        # Edit task
-        if st.session_state.get(f"editing_{date_str}_{i}", False):
-            edited = st.text_input("Edit task", value=task["text"], key=f"edit_input_{date_str}_{i}")
+        if is_editing_notes:
+            new_note = st.text_area("Edit note", value=notes, key=f"noteedit_{date_str}_{i}", height=120)
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("Save Note", key=f"savenote_{date_str}_{i}"):
+                    task["notes"] = new_note.strip()
+                    st.session_state[f"editing_notes_{date_str}_{i}"] = False
+                    st.rerun()
+            with col_cancel:
+                if st.button("Cancel", key=f"cancelnote_{date_str}_{i}"):
+                    st.session_state[f"editing_notes_{date_str}_{i}"] = False
+                    st.rerun()
+
+        # Always show note if it exists
+        if notes:
+            st.markdown(f"<div class='note-display'>{notes}</div>", unsafe_allow_html=True)
+
+        # Edit task name
+        if st.session_state.get(f"editing_task_{date_str}_{i}", False):
+            edited = st.text_input("Edit task", value=task["text"], key=f"edittask_{date_str}_{i}")
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("Save", key=f"save_edit_{date_str}_{i}"):
+                if st.button("Save", key=f"saveedit_{date_str}_{i}"):
                     task["text"] = edited.strip()
-                    st.session_state[f"editing_{date_str}_{i}"] = False
+                    st.session_state[f"editing_task_{date_str}_{i}"] = False
                     st.rerun()
             with c2:
-                if st.button("Cancel", key=f"cancel_edit_{date_str}_{i}"):
-                    st.session_state[f"editing_{date_str}_{i}"] = False
+                if st.button("Cancel", key=f"canceledit_{date_str}_{i}"):
+                    st.session_state[f"editing_task_{date_str}_{i}"] = False
                     st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
@@ -207,4 +208,4 @@ with c2:
         st.session_state.tasks_by_date[date_str] = [t for t in tasks if not t.get("completed", False)]
         st.rerun()
 
-st.caption("v7.7 — Final stable version • No infinite loading • Everything works forever")
+st.caption("v7.8 — Notes now clean & perfect • Edit box vanishes on save • Pure elegance")

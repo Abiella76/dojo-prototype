@@ -27,13 +27,13 @@ st.markdown(f"""
     .task-card {{ padding: 18px; margin: 14px 0; border-radius: 18px; background: rgba(255,75,75,0.1); border-left: 7px solid {accent}; box-shadow: 0 6px 20px rgba(0,0,0,0.3); color: {text_color}; }}
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
-    .progress-fill {{ height: 100%; width: {{score}}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
+    .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
     .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; font-size: 15px; line-height: 1.5; }}
 </style>
 """, unsafe_allow_html=True)
 
 # Header + Backup
-col1, col2, col3 = st.columns([7,1,4])
+col1, col2, col3 = st.columns([6,1,5])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.get('user_name','Warrior')}'s Life OS</h1>", unsafe_allow_html=True)
 with col2:
@@ -49,7 +49,7 @@ with col3:
     }
     st.download_button("Download Backup", json.dumps(backup_data, indent=2), f"dojo_backup_{date.today()}.json", "application/json")
 
-# Restore — stable & safe
+# Restore
 if "restore_triggered" not in st.session_state:
     st.session_state.restore_triggered = False
 
@@ -64,8 +64,8 @@ if uploaded and not st.session_state.restore_triggered:
         st.session_state.theme = data.get("theme", "dark")
         st.success("Backup restored perfectly!")
         st.rerun()
-    except Exception as e:
-        st.error("Invalid backup file — try downloading a fresh one")
+    except:
+        st.error("Invalid backup file")
         st.session_state.restore_triggered = False
 if uploaded is None:
     st.session_state.restore_triggered = False
@@ -89,7 +89,6 @@ date_str = selected_date.strftime("%Y-%m-%d")
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
 
-# Carry over incomplete tasks
 for offset in range(1, 31):
     past = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
     if past in st.session_state.tasks_by_date:
@@ -118,6 +117,23 @@ while True:
 if done > 0:
     st.session_state.streak_dates.add(date_str)
 
+# ────── FILTER DROPDOWN ──────
+st.markdown("### Tasks")
+filter_option = st.selectbox(
+    "Show:",
+    options=["All", "Open", "Completed"],
+    index=0,
+    key="task_filter"
+)
+
+# Apply filter
+if filter_option == "Open":
+    filtered_tasks = [t for t in tasks if not t.get("completed", False)]
+elif filter_option == "Completed":
+    filtered_tasks = [t for t in tasks if t.get("completed", False)]
+else:
+    filtered_tasks = tasks
+
 # Main UI
 c1, c2 = st.columns([2,1])
 with c1:
@@ -130,7 +146,10 @@ with c1:
             tasks.append({"text": new.strip(), "completed": False, "notes": ""})
             st.rerun()
 
-    for i, task in enumerate(tasks.copy()):
+    # Show filtered tasks
+    for i, task in enumerate(filtered_tasks.copy()):
+        # Use original index for actions (important!)
+        original_index = tasks.index(task)
         completed = task.get("completed", False)
         notes = task.get("notes", "").strip()
 
@@ -144,68 +163,66 @@ with c1:
             if completed:
                 st.success("DONE")
             else:
-                if st.button("Complete", key=f"win_{date_str}_{i}"):
-                    task["completed"] = True
+                if st.button("Complete", key=f"win_{date_str}_{original_index}"):
+                    tasks[original_index]["completed"] = True
                     st.rerun()
 
         with cols[2]:
-            if st.button("Notes", key=f"notes_{date_str}_{i}"):
-                st.session_state[f"editing_notes_{date_str}_{i}"] = True
+            if st.button("Notes", key=f"notes_{date_str}_{original_index}"):
+                st.session_state[f"editing_notes_{date_str}_{original_index}"] = True
 
         with cols[3]:
-            if st.button("Edit", key=f"edit_{date_str}_{i}"):
-                st.session_state[f"editing_task_{date_str}_{i}"] = True
+            if st.button("Edit", key=f"edit_{date_str}_{original_index}"):
+                st.session_state[f"editing_task_{date_str}_{original_index}"] = True
 
         with cols[4]:
-            if st.button("Delete", key=f"del_{date_str}_{i}"):
-                tasks.pop(i)
+            if st.button("Delete", key=f"del_{date_str}_{original_index}"):
+                tasks.pop(original_index)
                 st.rerun()
 
-        # NOTES — clean & permanent
-        if st.session_state.get(f"editing_notes_{date_str}_{i}", False):
-            new_note = st.text_area("Edit note", value=notes, key=f"noteedit_{date_str}_{i}", height=120)
-            colA, colB = st.columns(2)
-            with colA:
-                if st.button("Save Note", key=f"savenote_{date_str}_{i}"):
-                    task["notes"] = new_note.strip()
-                    st.session_state[f"editing_notes_{date_str}_{i}"] = False
+        # Notes
+        if st.session_state.get(f"editing_notes_{date_str}_{original_index}", False):
+            new_note = st.text_area("Edit note", value=notes, key=f"noteedit_{date_str}_{original_index}", height=120)
+            ca, cb = st.columns(2)
+            with ca:
+                if st.button("Save Note", key=f"savenote_{date_str}_{original_index}"):
+                    tasks[original_index]["notes"] = new_note.strip()
+                    st.session_state[f"editing_notes_{date_str}_{original_index}"] = False
                     st.rerun()
-            with colB:
-                if st.button("Cancel", key=f"cancelnote_{date_str}_{i}"):
-                    st.session_state[f"editing_notes_{date_str}_{i}"] = False
+            with cb:
+                if st.button("Cancel", key=f"cancelnote_{date_str}_{original_index}"):
+                    st.session_state[f"editing_notes_{date_str}_{original_index}"] = False
                     st.rerun()
 
-        # Always show saved note
         if notes:
             st.markdown(f"<div class='note-display'>{notes}</div>", unsafe_allow_html=True)
 
-        # Edit task name
-        if st.session_state.get(f"editing_task_{date_str}_{i}", False):
-            edited = st.text_input("Edit task", value=task["text"], key=f"edittask_{date_str}_{i}")
+        # Edit task
+        if st.session_state.get(f"editing_task_{date_str}_{original_index}", False):
+            edited = st.text_input("Edit task", value=task["text"], key=f"edittask_{date_str}_{original_index}")
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("Save", key=f"saveedit_{date_str}_{i}"):
-                    task["text"] = edited.strip()
-                    st.session_state[f"editing_task_{date_str}_{i}"] = False
+                if st.button("Save", key=f"saveedit_{date_str}_{original_index}"):
+                    tasks[original_index]["text"] = edited.strip()
+                    st.session_state[f"editing_task_{date_str}_{original_index}"] = False
                     st.rerun()
             with c2:
-                if st.button("Cancel", key=f"canceledit_{date_str}_{i}"):
-                    st.session_state[f"editing_task_{date_str}_{i}"] = False
+                if st.button("Cancel", key=f"canceledit_{date_str}_{original_index}"):
+                    st.session_state[f"editing_task_{date_str}_{original_index}"] = False
                     st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-# Sidebar
 with c2:
     st.metric("Streak", f"{streak} days")
     st.metric("Flow", f"{score}%")
-    st.write(f"**Left:** {total - done}")
+    st.write(f"**Total:** {total}  |  **Done:** {done}")
 
     if st.button("Clear completed tasks"):
-        st.warning("This will permanently hide completed tasks. Are you sure?")
-        if st.button("Yes, clear them forever"):
+        st.warning("This will permanently hide all completed tasks for this day.")
+        if st.button("Yes, clear them"):
             st.session_state.tasks_by_date[date_str] = [t for t in tasks if not t.get("completed", False)]
-            st.success("Completed tasks cleared")
+            st.success("Cleared!")
             st.rerun()
 
-st.caption("v7.9 — FINAL UNBREAKABLE VERSION • Clear completed fixed • Notes 100% reliable • You are now unstoppable")
+st.caption("v8.0 — Filter added: All • Open • Completed | Everything else perfect")

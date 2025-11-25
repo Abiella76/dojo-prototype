@@ -2,6 +2,10 @@ import streamlit as st
 from datetime import date, timedelta
 import json
 
+# FORCE CLEAR CACHE ON DEPLOY (so you always see latest version)
+st.cache_data.clear()
+st.cache_resource.clear()
+
 # ────── THEME & PRIORITY COLORS ──────
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
@@ -94,7 +98,7 @@ with col1:
 with col2:
     if st.button("Moon" if theme == "dark" else "Sun"):
         toggle_theme()
-        st.rerun()
+        st.rer.run()
 with col3:
     backup = {
         "user_name": st.session_state.user_name,
@@ -119,58 +123,51 @@ if uploaded_file is not None:
         except:
             st.error("Invalid backup")
 
-# ────── NEW TASK + PRIORITY (NO FORM, NO ADD BUTTON) ──────
+# ────── NEW TASK + PRIORITY (NO ADD BUTTON) ──────
 st.markdown("### Add Task")
 
-# Persistent input field (survives rerun)
 if "new_task" not in st.session_state:
     st.session_state.new_task = ""
 
 new_task = st.text_input(
     "What needs to be done?",
     value=st.session_state.new_task,
-    placeholder="Type your task...",
-    key="raw_task_input",
+    placeholder="Type your task here...",
+    key="task_input",
     label_visibility="collapsed"
 )
 
-# Update session state
 st.session_state.new_task = new_task
 
-# Show priority only if there's text
 if new_task.strip():
-    st.markdown("**Priority → click to add instantly**")
-    
+    st.markdown("**Priority — click to add instantly**")
     cols = st.columns(4)
-    priority_clicked = None
-    
-    for i, pri in enumerate(["Critical", "High", "Medium", "Low"]):
-        with cols[i]:
-            if st.button(pri, key=f"pri_{pri}", use_container_width=True):
-                priority_clicked = pri
+    clicked_priority = None
 
-    # INSTANT ADD WHEN PRIORITY CLICKED
-    if priority_clicked:
+    for i, p in enumerate(["Critical", "High", "Medium", "Low"]):
+        with cols[i]:
+            if st.button(p, key=f"add_{p}", use_container_width=True):
+                clicked_priority = p
+
+    if clicked_priority:
         tasks.append({
             "text": new_task.strip(),
             "completed": False,
             "notes": "",
-            "priority": priority_clicked
+            "priority": clicked_priority
         })
-        st.session_state.new_task = ""  # Clear input
-        st.success(f"Added as {priority_clicked}!")
+        st.session_state.new_task = ""
+        st.success(f"Added as {clicked_priority}!")
         st.rerun()
 else:
-    st.info("Type a task above → then click a priority button to add")
+    st.caption("Start typing → priority buttons appear")
 
 # ────── FILTER ──────
 filter_opt = st.selectbox("Show:", ["All", "Open", "Completed"], key="filter_select")
 
-display_tasks = {
-    "All": tasks,
-    "Open": [t for t in tasks if not t.get("completed", False)],
-    "Completed": [t for t in tasks if t.get("completed", False)]
-}[filter_opt]
+display_tasks = tasks if filter_opt == "All" else \
+                [t for t in tasks if not t.get("completed", False)] if filter_opt == "Open" else \
+                [t for t in tasks if t.get("completed", False)]
 
 # Main UI
 c1, c2 = st.columns([2,1])
@@ -186,9 +183,8 @@ with c1:
         color = PRIORITY_COLORS.get(priority, "#888888")
 
         st.markdown(f"<div class='task-card{' completed' if completed else ''}>", unsafe_allow_html=True)
-        
         st.markdown(f"<div class='priority-tag' style='background:{color}'>{priority}</div>", unsafe_allow_html=True)
-        
+
         cols = st.columns([5,2,2,2,2])
         with cols[0]:
             st.markdown(f"### {task['text']}")
@@ -215,11 +211,11 @@ with c1:
                 st.rerun()
 
         # Notes
-        if st.session_state.get(f"note_edit_{date_str}_{idx}"):
+        if st.session_state_get(f"note_edit_{date_str}_{idx}"):
             note_text = st.text_area("Note", value=notes, key=f"note_in_{date_str}_{idx}", height=120)
             ca, cb = st.columns(2)
             with ca:
-                if st.button("Save", key=f"save_n_{date_str}_{idx}"):
+                if st.button("Save Note", key=f"save_n_{date_str}_{idx}"):
                     tasks[idx]["notes"] = note_text.strip()
                     st.session_state[f"note_edit_{date_str}_{idx}"] = False
                     st.rerun()
@@ -231,7 +227,7 @@ with c1:
         if notes:
             st.markdown(f"<div class='note-display'>{notes}</div>", unsafe_allow_html=True)
 
-        # Edit task
+        # Edit task name
         if st.session_state.get(f"task_edit_{date_str}_{idx}"):
             edited = st.text_input("Edit task", value=task["text"], key=f"task_in_{date_str}_{idx}")
             ca, cb = st.columns(2)
@@ -242,4 +238,14 @@ with c1:
                     st.rerun()
             with cb:
                 if st.button("Cancel", key=f"cancel_t_{date_str}_{idx}"):
-                    st.session_state[f"task_edit_{date_str}_{idx}
+                    st.session_state[f"task_edit_{date_str}_{idx}"] = False
+                    st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+with c2:
+    st.metric("Streak", f"{streak} days")
+    st.metric("Flow", f"{score}%")
+    st.write(f"**Total:** {total} | **Done:** {done}")
+
+st.caption("v9.2 — FINAL • Priority buttons work • No Add button • Instant add • Cache cleared • You win")

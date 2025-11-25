@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import date, timedelta
 import json
 
-# ────── THEME & COLORS ──────
+# ────── THEME & PRIORITY COLORS ──────
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
@@ -83,7 +83,7 @@ st.markdown(f"""
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
     .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
     .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; font-size: 15px; line-height: 1.5; }}
-    .priority-tag {{ padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; color: white; display: inline-block; margin-bottom: 10px; }}
+    .priority-tag {{ padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; color: white; display: inline-block; margin-bottom: 12px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,48 +119,58 @@ if uploaded_file is not None:
         except:
             st.error("Invalid backup")
 
-# ────── NEW TASK WITH PRIORITY (NO ADD BUTTON) ──────
-st.markdown("### Add New Task")
-task_input = st.text_input(
+# ────── NEW TASK + PRIORITY (NO FORM, NO ADD BUTTON) ──────
+st.markdown("### Add Task")
+
+# Persistent input field (survives rerun)
+if "new_task" not in st.session_state:
+    st.session_state.new_task = ""
+
+new_task = st.text_input(
     "What needs to be done?",
-    placeholder="Type your task here...",
-    key="task_input",
+    value=st.session_state.new_task,
+    placeholder="Type your task...",
+    key="raw_task_input",
     label_visibility="collapsed"
 )
 
-# Only show priority selector if task is typed
-if task_input.strip():
-    st.markdown("**Select priority to add instantly:**")
-    selected_priority = st.radio(
-        "",
-        ["Critical", "High", "Medium", "Low"],
-        horizontal=True,
-        key="priority_radio"
-    )
+# Update session state
+st.session_state.new_task = new_task
 
-    # AUTO-ADD ON PRIORITY SELECTION
-    if st.session_state.priority_radio == selected_priority:
-        if not any(t["text"] == task_input.strip() and t.get("priority") == selected_priority for t in tasks):
-            tasks.append({
-                "text": task_input.strip(),
-                "completed": False,
-                "notes": "",
-                "priority": selected_priority
-            })
-            st.success(f"Added as {selected_priority}!")
-            st.rerun()
+# Show priority only if there's text
+if new_task.strip():
+    st.markdown("**Priority → click to add instantly**")
+    
+    cols = st.columns(4)
+    priority_clicked = None
+    
+    for i, pri in enumerate(["Critical", "High", "Medium", "Low"]):
+        with cols[i]:
+            if st.button(pri, key=f"pri_{pri}", use_container_width=True):
+                priority_clicked = pri
+
+    # INSTANT ADD WHEN PRIORITY CLICKED
+    if priority_clicked:
+        tasks.append({
+            "text": new_task.strip(),
+            "completed": False,
+            "notes": "",
+            "priority": priority_clicked
+        })
+        st.session_state.new_task = ""  # Clear input
+        st.success(f"Added as {priority_clicked}!")
+        st.rerun()
 else:
-    st.info("Type a task above to set priority")
+    st.info("Type a task above → then click a priority button to add")
 
 # ────── FILTER ──────
 filter_opt = st.selectbox("Show:", ["All", "Open", "Completed"], key="filter_select")
 
-if filter_opt == "Open":
-    display_tasks = [t for t in tasks if not t.get("completed", False)]
-elif filter_opt == "Completed":
-    display_tasks = [t for t in tasks if t.get("completed", False)]
-else:
-    display_tasks = tasks
+display_tasks = {
+    "All": tasks,
+    "Open": [t for t in tasks if not t.get("completed", False)],
+    "Completed": [t for t in tasks if t.get("completed", False)]
+}[filter_opt]
 
 # Main UI
 c1, c2 = st.columns([2,1])
@@ -173,11 +183,10 @@ with c1:
         completed = task.get("completed", False)
         notes = task.get("notes", "").strip()
         priority = task.get("priority", "Low")
-        color = PRIORITY_COLORS.get(priority, "#888")
+        color = PRIORITY_COLORS.get(priority, "#888888")
 
         st.markdown(f"<div class='task-card{' completed' if completed else ''}>", unsafe_allow_html=True)
         
-        # Priority tag
         st.markdown(f"<div class='priority-tag' style='background:{color}'>{priority}</div>", unsafe_allow_html=True)
         
         cols = st.columns([5,2,2,2,2])
@@ -210,7 +219,7 @@ with c1:
             note_text = st.text_area("Note", value=notes, key=f"note_in_{date_str}_{idx}", height=120)
             ca, cb = st.columns(2)
             with ca:
-                if st.button("Save Note", key=f"save_n_{date_str}_{idx}"):
+                if st.button("Save", key=f"save_n_{date_str}_{idx}"):
                     tasks[idx]["notes"] = note_text.strip()
                     st.session_state[f"note_edit_{date_str}_{idx}"] = False
                     st.rerun()
@@ -233,14 +242,4 @@ with c1:
                     st.rerun()
             with cb:
                 if st.button("Cancel", key=f"cancel_t_{date_str}_{idx}"):
-                    st.session_state[f"task_edit_{date_str}_{idx}"] = False
-                    st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-with c2:
-    st.metric("Streak", f"{streak} days")
-    st.metric("Flow", f"{score}%")
-    st.write(f"**Total:** {total} | **Done:** {done}")
-
-st.caption("v9.1 — PRIORITY DONE PERFECTLY • No Add button • Select priority = instant add • Color tags • You are a genius")
+                    st.session_state[f"task_edit_{date_str}_{idx}

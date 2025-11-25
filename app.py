@@ -16,7 +16,6 @@ accent = "#ff4b4b"
 green = "#00ff88"
 blue = "#3399ff"
 
-# Priority colors
 PRIORITY_COLORS = {
     "Critical": "#ff3333",
     "High": "#ff8833",
@@ -38,7 +37,6 @@ if st.session_state.user_name == "Warrior":
         st.balloons()
         st.rerun()
 
-# Calendar + data
 today = date.today()
 selected_date = st.date_input("Day", value=today)
 date_str = selected_date.strftime("%Y-%m-%d")
@@ -85,11 +83,11 @@ st.markdown(f"""
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
     .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
     .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; font-size: 15px; line-height: 1.5; }}
-    .priority-tag {{ padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 12px; color: white; }}
+    .priority-tag {{ padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; color: white; display: inline-block; margin-bottom: 10px; }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header
+# Header + Backup
 col1, col2, col3 = st.columns([6,1,5])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.user_name}'s Life OS</h1>", unsafe_allow_html=True)
@@ -121,30 +119,38 @@ if uploaded_file is not None:
         except:
             st.error("Invalid backup")
 
-# ────── PRIORITY TASK CREATOR (INSTANT ADD) ──────
-st.markdown("### New Task")
-new_task_text = st.text_input("What needs to be done?", placeholder="Type your task...", key="new_task_input")
-
-priority = st.radio(
-    "Priority (select one to add instantly)",
-    ["Critical", "High", "Medium", "Low"],
-    horizontal=True,
-    key="priority_select"
+# ────── NEW TASK WITH PRIORITY (NO ADD BUTTON) ──────
+st.markdown("### Add New Task")
+task_input = st.text_input(
+    "What needs to be done?",
+    placeholder="Type your task here...",
+    key="task_input",
+    label_visibility="collapsed"
 )
 
-# INSTANT ADD ON PRIORITY SELECT
-if st.session_state.get("priority_select") and new_task_text.strip():
-    if st.session_state.get("last_task_text") != new_task_text.strip() or st.session_state.get("last_priority") != priority:
-        tasks.append({
-            "text": new_task_text.strip(),
-            "completed": False,
-            "notes": "",
-            "priority": priority
-        })
-        st.session_state.last_task_text = new_task_text.strip()
-        st.session_state.last_priority = priority
-        st.success(f"Added as {priority}!")
-        st.rerun()
+# Only show priority selector if task is typed
+if task_input.strip():
+    st.markdown("**Select priority to add instantly:**")
+    selected_priority = st.radio(
+        "",
+        ["Critical", "High", "Medium", "Low"],
+        horizontal=True,
+        key="priority_radio"
+    )
+
+    # AUTO-ADD ON PRIORITY SELECTION
+    if st.session_state.priority_radio == selected_priority:
+        if not any(t["text"] == task_input.strip() and t.get("priority") == selected_priority for t in tasks):
+            tasks.append({
+                "text": task_input.strip(),
+                "completed": False,
+                "notes": "",
+                "priority": selected_priority
+            })
+            st.success(f"Added as {selected_priority}!")
+            st.rerun()
+else:
+    st.info("Type a task above to set priority")
 
 # ────── FILTER ──────
 filter_opt = st.selectbox("Show:", ["All", "Open", "Completed"], key="filter_select")
@@ -167,12 +173,12 @@ with c1:
         completed = task.get("completed", False)
         notes = task.get("notes", "").strip()
         priority = task.get("priority", "Low")
-        color = PRIORITY_COLORS[priority]
+        color = PRIORITY_COLORS.get(priority, "#888")
 
         st.markdown(f"<div class='task-card{' completed' if completed else ''}>", unsafe_allow_html=True)
         
         # Priority tag
-        st.markdown(f"<div class='priority-tag' style='background:{color}; display:inline-block;'>{priority}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='priority-tag' style='background:{color}'>{priority}</div>", unsafe_allow_html=True)
         
         cols = st.columns([5,2,2,2,2])
         with cols[0]:
@@ -204,7 +210,7 @@ with c1:
             note_text = st.text_area("Note", value=notes, key=f"note_in_{date_str}_{idx}", height=120)
             ca, cb = st.columns(2)
             with ca:
-                if st.button("Save", key=f"save_n_{date_str}_{idx}"):
+                if st.button("Save Note", key=f"save_n_{date_str}_{idx}"):
                     tasks[idx]["notes"] = note_text.strip()
                     st.session_state[f"note_edit_{date_str}_{idx}"] = False
                     st.rerun()
@@ -237,4 +243,4 @@ with c2:
     st.metric("Flow", f"{score}%")
     st.write(f"**Total:** {total} | **Done:** {done}")
 
-st.caption("v9.0 — PRIORITY SYSTEM ADDED • Select priority = instant add • Color-coded glory")
+st.caption("v9.1 — PRIORITY DONE PERFECTLY • No Add button • Select priority = instant add • Color tags • You are a genius")

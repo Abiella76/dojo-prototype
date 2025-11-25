@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import date, timedelta
 import json
 
-# Force fresh deploy
+# Clear cache
 st.cache_data.clear()
 st.cache_resource.clear()
 
@@ -17,8 +17,6 @@ theme = st.session_state.theme
 bg = "#0e1117" if theme == "dark" else "#ffffff"
 text_color = "#fafafa" if theme == "dark" else "#1e1e1e"
 accent = "#ff4b4b"
-green = "#00ff88"
-blue = "#3399ff"
 
 PRIORITY_COLORS = {
     "Critical": "#ff3333",
@@ -27,7 +25,7 @@ PRIORITY_COLORS = {
     "Low": "#33ff99"
 }
 
-PRIORITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
 st.set_page_config(page_title="Dojo", page_icon="Calendar", layout="wide")
 
@@ -49,7 +47,7 @@ date_str = selected_date.strftime("%Y-%m-%d")
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
 
-# Carry-over
+# Carry-over incomplete tasks
 for offset in range(1, 31):
     past = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
     if past in st.session_state.tasks_by_date:
@@ -62,7 +60,7 @@ total = len(tasks)
 done = sum(1 for t in tasks if t.get("completed", False))
 score = int(done / total * 100) if total else 0
 
-# Streak logic
+# Streak
 streak = 0
 d = today
 while True:
@@ -82,19 +80,17 @@ if done > 0:
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
-    .stButton > button {{ border-radius: 12px; font-weight: bold; padding: 8px 16px; }}
     .task-card {{ padding: 18px; margin: 14px 0; border-radius: 18px; background: rgba(255,75,75,0.1); border-left: 7px solid {accent}; box-shadow: 0 6px 20px rgba(0,0,0,0.3); color: {text_color}; }}
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
-    .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; transition: width 1.4s cubic-bezier(0.65, 0, 0.35, 1); }}
+    .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; }}
     .priority-tag {{ 
-        padding: 7px 16px; border-radius: 30px; font-weight: bold; font-size: 14px; 
+        padding: 8px 18px; border-radius: 30px; font-weight: bold; font-size: 14px; 
         color: white; display: inline-block; margin-bottom: 12px;
-        cursor: pointer; transition: all 0.2s;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        cursor: pointer; transition: all 0.2s; box-shadow: 0 3px 10px rgba(0,0,0,0.4);
     }}
-    .priority-tag:hover {{ transform: scale(1.05); }}
-    .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid {blue}; }}
+    .priority-tag:hover {{ transform: scale(1.08); }}
+    .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid #3399ff; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -107,26 +103,27 @@ with col2:
         toggle_theme()
         st.rerun()
 with col3:
-    backup = {k: v if k != "streak_dates" else list(v) for k, v in st.session_state.items() if k in ["user_name","tasks_by_date","streak_dates","theme"]}
-    backup["theme"] = theme
+    backup = {
+        "user_name": st.session_state.user_name,
+        "tasks_by_date": st.session_state.tasks_by_date,
+        "streak_dates": list(st.session_state.streak_dates),
+        "theme": theme
+    }
     st.download_button("Download Backup", json.dumps(backup, indent=2), f"dojo_backup_{date.today()}.json", "application/json")
 
 # Restore
 uploaded_file = st.file_uploader("Upload backup to restore", type="json")
-if uploaded_file is not None:
-    if st.button("Restore this backup"):
-        try:
-            data = json.load(uploaded_file)
-            st.session_state.user_name = data.get("user_name", "Warrior")
-            st.session_state.tasks_by_date = data.get("tasks_by_date", {})
-            st.session_state.streak_dates = set(data.get("streak_dates", []))
-            st.session_state.theme = data.get("theme", "dark")
-            st.success("Backup restored!")
-            st.rerun()
-        except:
-            st.error("Invalid backup")
+if uploaded_file and st.button("Restore this backup"):
+    try:
+        data = json.load(uploaded_file)
+        st.session_state.update(data)
+        st.session_state.streak_dates = set(data.get("streak_dates", []))
+        st.success("Backup restored!")
+        st.rerun()
+    except:
+        st.error("Invalid backup")
 
-# ────── ADD TASK WITH PRIORITY BUTTONS ──────
+# ────── ADD NEW TASK ──────
 st.markdown("### Add Task")
 if "new_task" not in st.session_state:
     st.session_state.new_task = ""
@@ -143,21 +140,21 @@ st.session_state.new_task = new_task
 if new_task.strip():
     st.markdown("**Click priority to add instantly**")
     cols = st.columns(4)
-    for i, p in enumerate(["Critical", "High", "Medium", "Low"]):
+    for i, p in enumerate(PRIORITIES):
         with cols[i]:
-            if st.button(p, key=f"new_{p}", use_container_width=True):
+            if st.button(p, key=f"add_new_{p}", use_container_width=True):
                 tasks.append({"text": new_task.strip(), "completed": False, "notes": "", "priority": p})
                 st.session_state.new_task = ""
                 st.success(f"Added as {p}!")
                 st.rerun()
 else:
-    st.caption("Type → pick priority → instant add")
+    st.caption("Type → click priority → instant add")
 
 # ────── FILTER ──────
 filter_opt = st.selectbox("Show:", ["All", "Open", "Completed"], key="filter_select")
-display_tasks = tasks if filter_opt == "All" else \
-                [t for t in tasks if not t.get("completed", False)] if filter_opt == "Open" else \
-                [t for t in tasks if t.get("completed", False)]
+display_tasks = [t for t in tasks if filter_opt == "All" or 
+                (filter_opt == "Open" and not t.get("completed", False)) or 
+                (filter_opt == "Completed" and t.get("completed", False))]
 
 # Main UI
 c1, c2 = st.columns([2,1])
@@ -169,32 +166,33 @@ with c1:
         idx = tasks.index(task)
         completed = task.get("completed", False)
         notes = task.get("notes", "").strip()
-        current_priority = task.get("priority", "Low")
-        color = PRIORITY_COLORS[current_priority]
+        priority = task.get("priority", "Low")
+        color = PRIORITY_COLORS[priority]
 
         st.markdown(f"<div class='task-card{' completed' if completed else ''}>", unsafe_allow_html=True)
 
-        # CLICKABLE PRIORITY TAG
-        if st.button(current_priority, key=f"tag_{date_str}_{idx}", help="Click to change priority"):
-            st.session_state[f"changing_priority_{date_str}_{idx}"] = True
+        # CLICKABLE PRIORITY TAG (only one button!)
+        if st.button(priority, key=f"change_priority_{date_str}_{idx}", help="Click to change priority"):
+            st.session_state[f"edit_prio_{date_str}_{idx}"] = True
 
-        st.markdown(f"<div class='priority-tag' style='background:{color}'>{current_priority}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='priority-tag' style='background:{color}'>{priority}</div>", unsafe_allow_html=True)
 
-        # CHANGE PRIORITY INLINE
-        if st.session_state.get(f"changing_priority_{date_str}_{idx}"):
+        # CHANGE PRIORITY (appears only when editing)
+        if st.session_state.get(f"edit_prio_{date_str}_{idx}"):
             st.markdown("**Change priority:**")
             pcols = st.columns(4)
-            for j, new_p in enumerate(["Critical", "High", "High", "Medium", "Low"]):
+            for j, new_p in enumerate(PRIORITIES):
                 with pcols[j]:
-                    if st.button(new_p, key=f"set_p_{date_str}_{idx}_{new_p}", use_container_width=True):
+                    if st.button(new_p, key=f"set_prio_{date_str}_{idx}_{new_p}", use_container_width=True):
                         tasks[idx]["priority"] = new_p
-                        st.session_state[f"changing_priority_{date_str}_{idx}"] = False
+                        st.session_state[f"edit_prio_{date_str}_{idx}"] = False
                         st.success(f"Priority → {new_p}")
                         st.rerun()
-            if st.button("Cancel", key=f"cancel_p_{date_str}_{idx}"):
-                st.session_state[f"changing_priority_{date_str}_{idx}"] = False
+            if st.button("Cancel", key=f"cancel_prio_{date_str}_{idx}"):
+                st.session_state[f"edit_prio_{date_str}_{idx}"] = False
                 st.rerun()
 
+        # Task actions
         cols = st.columns([5,2,2,2,2])
         with cols[0]:
             st.markdown(f"### {task['text']}")
@@ -220,7 +218,7 @@ with c1:
                 tasks.pop(idx)
                 st.rerun()
 
-        # Notes
+        # Notes & Edit (unchanged)
         if st.session_state.get(f"note_edit_{date_str}_{idx}"):
             note_text = st.text_area("Note", value=notes, key=f"note_in_{date_str}_{idx}", height=120)
             na, nb = st.columns(2)
@@ -237,7 +235,6 @@ with c1:
         if notes:
             st.markdown(f"<div class='note-display'>{notes}</div>", unsafe_allow_html=True)
 
-        # Edit task text
         if st.session_state.get(f"task_edit_{date_str}_{idx}"):
             edited = st.text_input("Edit task", value=task["text"], key=f"task_in_{date_str}_{idx}")
             ea, eb = st.columns(2)
@@ -258,4 +255,4 @@ with c2:
     st.metric("Flow", f"{score}%")
     st.write(f"**Total:** {total} | **Done:** {done}")
 
-st.caption("v9.4 — Click priority tag to change it • Instant add • You are operating at peak human performance")
+st.caption("v9.5 — Click priority tag to change • No duplicate keys • No repeated Low • Pure perfection")

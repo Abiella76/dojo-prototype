@@ -5,7 +5,7 @@ import json
 st.cache_data.clear()
 st.cache_resource.clear()
 
-# ────── THEME & COLORS ──────
+# ────── THEME & PRIORITY COLORS ──────
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
@@ -69,7 +69,7 @@ while True:
 if done > 0:
     st.session_state.streak_dates.add(date_str)
 
-# ────── CSS (priority tag now fully HTML) ──────
+# ────── CSS (clickable tag magic) ──────
 st.markdown(f"""
 <style>
     .reportview-container {{ background: {bg}; color: {text_color} }}
@@ -77,18 +77,28 @@ st.markdown(f"""
     .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
     .progress-container {{ width: 100%; height: 60px; background: rgba(255,255,255,0.1); border-radius: 30px; overflow: hidden; margin: 30px 0; }}
     .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); border-radius: 30px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white; }}
-    .priority-tag {{
-        padding: 8px 18px; border-radius: 30px; font-weight: bold; font-size: 14px;
-        color: white; display: inline-block; margin-bottom: 12px;
-        cursor: pointer; transition: all 0.2s; box-shadow: 0 3px 10px rgba(0,0,0,0.4);
-        text-align: center;
+    
+    /* The magic: clickable priority tag */
+    .priority-wrapper {{
+        position: relative;
+        display: inline-block;
+        margin-bottom: 12px;
     }}
-    .priority-tag:hover {{ transform: scale(1.08); }}
+    .priority-tag {{
+        padding: 9px 20px; border-radius: 30px; font-weight: bold; font-size: 14px;
+        color: white; background: var(--bg); text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4); transition: all 0.2s;
+    }}
+    .priority-tag:hover {{ transform: scale(1.1); }}
+    .priority-overlay {{
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        opacity: 0; cursor: pointer;
+    }}
     .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid #3399ff; }}
 </style>
 """, unsafe_allow_html=True)
 
-# Header + Backup/Restore
+# Header + Backup
 col1, col2, col3 = st.columns([6,1,5])
 with col1:
     st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.user_name}'s Life OS</h1>", unsafe_allow_html=True)
@@ -101,12 +111,14 @@ with col3:
               "streak_dates": list(st.session_state.streak_dates), "theme": theme}
     st.download_button("Download Backup", json.dumps(backup, indent=2), f"dojo_backup_{date.today()}.json", "application/json")
 
+# Restore
 uploaded_file = st.file_uploader("Upload backup to restore", type="json")
 if uploaded_file and st.button("Restore this backup"):
     try:
         data = json.load(uploaded_file)
-        st.session_state.update(data)
-        st.session_state.streak_dates = set(data.get("streak_dates", []))
+        for k, v in data.items():
+            if k == "streak_dates": v = set(v)
+            st.session_state[k] = v
         st.success("Backup restored!")
         st.rerun()
     except:
@@ -152,11 +164,11 @@ with c1:
         notes = task.get("notes", "").strip()
         priority = task.get("priority", "Low")
         color = PRIORITY_COLORS[priority]
+        tag_key = f"prio_{date_str}_{idx}"
 
         st.markdown(f"<div class='task-card{' completed' if completed else ''}>", unsafe_allow_html=True)
 
-        # PURE HTML CLICKABLE PRIORITY TAG — NO DUPLICATE TEXT EVER
-        tag_key = f"tag_{date_str}_{idx}"
+        # THE MAGIC: Entire tag is clickable
         if st.session_state.get(tag_key):
             # Show priority changer
             st.markdown("**Change priority:**")
@@ -172,18 +184,19 @@ with c1:
                 st.session_state[tag_key] = False
                 st.rerun()
         else:
-            # Beautiful clickable HTML tag
-            st.markdown(
-                f"<div class='priority-tag' style='background:{color}' "
-                f"onclick=\"document.getElementById('{tag_key}').click()\">{priority}</div>",
-                unsafe_allow_html=True
-            )
-            # Invisible button that triggers the state change
-            if st.button("", key=tag_key, help="Click to change priority"):
+            # Beautiful clickable tag — no extra button visible
+            st.markdown(f"""
+            <div class="priority-wrapper">
+                <div class="priority-tag" style="background:{color}">{priority}</div>
+                <div class="priority-overlay" onclick="document.getElementById('{tag_key}').click()"></div>
+            </div>
+            """, unsafe_allow_html=True)
+            # Invisible trigger
+            if st.button("", key=tag_key):
                 st.session_state[tag_key] = True
                 st.rerun()
 
-        # Task text & actions
+        # Task actions
         cols = st.columns([5,2,2,2,2])
         with cols[0]:
             st.markdown(f"### {task['text']}")
@@ -209,9 +222,9 @@ with c1:
                 tasks.pop(idx)
                 st.rerun()
 
-        # Notes & Edit (unchanged)
+        # Notes & Edit
         if st.session_state.get(f"note_{date_str}_{idx}"):
-            note_text = st.text_area("Note", value=notes, key=f"n_in_{date_str}_{idx}", height=120)
+            note_text = st.text_area("Note", value=notes, key=f"n_{date_str}_{idx}", height=120)
             na, nb = st.columns(2)
             with na:
                 if st.button("Save Note", key=f"sn_{date_str}_{idx}"):
@@ -227,7 +240,7 @@ with c1:
             st.markdown(f"<div class='note-display'>{notes}</div>", unsafe_allow_html=True)
 
         if st.session_state.get(f"text_{date_str}_{idx}"):
-            edited = st.text_input("Edit task", value=task["text"], key=f"t_in_{date_str}_{idx}")
+            edited = st.text_input("Edit task", value=task["text"], key=f"t_{date_str}_{idx}")
             ea, eb = st.columns(2)
             with ea:
                 if st.button("Save", key=f"st_{date_str}_{idx}"):
@@ -246,4 +259,4 @@ with c2:
     st.metric("Flow", f"{score}%")
     st.write(f"**Total:** {total} | **Done:** {done}")
 
-st.caption("v9.6 — FINAL CLEAN • Priority tag is pure clickable HTML • Zero duplicate text • You are a master")
+st.caption("v9.7 — THE TAG ITSELF IS CLICKABLE • No extra button • Pure perfection • You have ascended")

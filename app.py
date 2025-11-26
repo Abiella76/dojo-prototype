@@ -13,9 +13,12 @@ accent = "#ff4b4b"
 PRIORITY_COLORS = {"Critical": "#ff3333", "High": "#ff8833", "Medium": "#ffdd33", "Low": "#33ff99"}
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
-if "user_name" not in st.session_state: st.session_state.user_name = "Warrior"
-if "tasks_by_date" not in st.session_state: st.session_state.tasks_by_date = {}
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Warrior"
+if "tasks_by_date" not in st.session_state:
+    st.session_state.tasks_by_date = {}
 
+# Onboarding
 if st.session_state.user_name == "Warrior":
     name = st.text_input("Your name?", placeholder="e.g. Alex")
     if st.button("Enter Dojo") or name:
@@ -26,6 +29,7 @@ if st.session_state.user_name == "Warrior":
 today = date.today()
 selected_date = st.date_input("Day", value=today)
 date_str = selected_date.strftime("%Y-%m-%d")
+
 if date_str not in st.session_state.tasks_by_date:
     st.session_state.tasks_by_date[date_str] = []
 
@@ -40,23 +44,48 @@ for offset in range(1, 31):
 tasks = st.session_state.tasks_by_date[date_str]
 total = len(tasks)
 done = sum(t.get("completed", False) for t in tasks)
-score = int(done/total*100) if total else 0
+score = int(done / total * 100) if total else 0
 
-# ────── CSS (only what works) ──────
-st.markdown(f"""
+# ────── CSS ──────
+st.markdown(
+    f"""
 <style>
-    .reportview-container {{ background: {bg}; color: {text} }}
-    .task-card {{ padding: 18px; margin: 12px 0; border-radius: 16px; background: rgba(255,75,75,0.08);
-                  border-left: 6px solid {accent}; box-shadow: 0 6px 20px rgba(0,0,0,0.3); }}
-    .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
-    .progress-fill {{ height: 60px; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #00ff88);
-                      border-radius: 30px; display: flex; align-items: center; justify-content: center;
-                      font-size: 32px; font-weight: bold; color: white; }}
+    .reportview-container {{
+        background: {bg};
+        color: {text};
+    }}
+    .task-card {{
+        padding: 18px;
+        margin: 12px 0;
+        border-radius: 16px;
+        background: rgba(255,75,75,0.08);
+        border-left: 6px solid {accent};
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }}
+    .task-card.completed {{
+        opacity: 0.6;
+        text-decoration: line-through;
+    }}
+    .progress-fill {{
+        height: 60px;
+        width: {score}%;
+        background: linear-gradient(90deg, #ff4b4b, #00ff88);
+        border-radius: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+        font-weight: bold;
+        color: white;
+    }}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.user_name}'s Life OS</h1>", unsafe_allow_html=True)
 
+# New task
 new = st.text_input("What needs to be done?", key="new", label_visibility="collapsed")
 if new.strip():
     cols = st.columns(4)
@@ -68,17 +97,21 @@ if new.strip():
 
 st.markdown(f"<div class='progress-fill'>{score}%</div>", unsafe_allow_html=True)
 
-# ────── TASKS (v14 layout you liked + color restored + notes fixed) ──────
+# ────── TASKS ──────
 for i in range(len(tasks)):
     task = tasks[i]
     prio = task.get("priority", "Low")
-    color = PRIORITY_COLORS[prio]
+    color = PRIORITY_COLORS.get(prio, "#33ff99")
     edit_key = f"edit_prio_{date_str}_{i}"
 
-    st.markdown(f"<div class='task-card{' completed' if task.get('completed') else ''}>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='task-card{' completed' if task.get('completed') else ''}'>",
+        unsafe_allow_html=True,
+    )
 
     col_badge, col_title = st.columns([0.25, 0.75])
 
+    # Priority badge
     with col_badge:
         if st.session_state.get(edit_key):
             for np in PRIORITIES:
@@ -90,15 +123,17 @@ for i in range(len(tasks)):
                 st.session_state[edit_key] = False
                 st.rerun()
         else:
-            # FULL COLOR + CLICKABLE BADGE (the one that worked in v14)
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div style="background:{color}; color:white; padding:10px 24px; border-radius:50px; 
                         font-weight:bold; text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.4);
                         cursor:pointer; transition:all 0.25s;"
                  onclick="document.getElementById('badge_btn_{i}').click()">
                 {prio}
             </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
             if st.button("", key=f"badge_btn_{i}"):
                 st.session_state[edit_key] = True
                 st.rerun()
@@ -126,31 +161,39 @@ for i in range(len(tasks)):
             tasks.pop(i)
             st.rerun()
 
-    # NOTES — FIXED
-    if st.session_state.get(f"show_notes_{i}"):
-        note = st.text_area("Notes", value=task.get("notes", ""), key=f"note_input_{i}", height=100)
+    # ────── NOTES — REALLY FIXED ──────
+    if st.session_state.get(f"show_notes_{i}", False):
+        note_key = f"note_input_{date_str}_{i}"
+
+        # Initialize the note text in session state once, from the stored task value
+        if note_key not in st.session_state:
+            st.session_state[note_key] = task.get("notes", "")
+
+        # Use only `key`, let session_state manage the value
+        st.text_area("Notes", key=note_key, height=100)
+
         col_save, col_cancel = st.columns(2)
         with col_save:
-            if st.button("Save Note", key=f"save_note_{i}"):
-                tasks[i]["notes"] = note
+            if st.button("Save Note", key=f"save_note_{date_str}_{i}"):
+                tasks[i]["notes"] = st.session_state[note_key]
                 st.session_state[f"show_notes_{i}"] = False
                 st.rerun()
         with col_cancel:
-            if st.button("Cancel", key=f"cancel_note_{i}"):
+            if st.button("Cancel", key=f"cancel_note_{date_str}_{i}"):
                 st.session_state[f"show_notes_{i}"] = False
                 st.rerun()
 
-    # EDIT TASK TEXT — also fixed
-    if st.session_state.get(f"editing_{i}"):
-        new_text = st.text_input("Edit task", value=task["text"], key=f"edit_text_{i}")
+    # ────── EDIT TASK TEXT ──────
+    if st.session_state.get(f"editing_{i}", False):
+        new_text = st.text_input("Edit task", value=task["text"], key=f"edit_text_{date_str}_{i}")
         col_save, col_cancel = st.columns(2)
         with col_save:
-            if st.button("Save", key=f"save_edit_{i}"):
+            if st.button("Save", key=f"save_edit_{date_str}_{i}"):
                 tasks[i]["text"] = new_text.strip()
                 st.session_state[f"editing_{i}"] = False
                 st.rerun()
         with col_cancel:
-            if st.button("Cancel", key=f"cancel_edit_{i}"):
+            if st.button("Cancel", key=f"cancel_edit_{date_str}_{i}"):
                 st.session_state[f"editing_{i}"] = False
                 st.rerun()
 

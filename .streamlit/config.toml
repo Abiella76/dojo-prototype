@@ -1,0 +1,33 @@
+# Both palettes are declared here so Streamlit paints its own widgets correctly
+# in either mode. dojo/ui/theme.py mirrors the same tokens for the custom
+# markup, reading the active mode from st.context.theme.
+[theme]
+base = "dark"
+primaryColor = "#3987e5"
+font = "sans-serif"
+baseRadius = "0.75rem"
+buttonRadius = "2rem"
+
+[theme.dark]
+backgroundColor = "#141416"
+secondaryBackgroundColor = "#1c1c1f"
+textColor = "#f4f4f2"
+borderColor = "#303036"
+primaryColor = "#3987e5"
+linkColor = "#3987e5"
+codeBackgroundColor = "#232327"
+
+[theme.light]
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f2f1ee"
+textColor = "#131311"
+borderColor = "#e0dfda"
+primaryColor = "#2a78d6"
+linkColor = "#2a78d6"
+codeBackgroundColor = "#f2f1ee"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

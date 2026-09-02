@@ -1,0 +1,239 @@
+"""Unit tests for the parts that used to be silently wrong."""
+
+from __future__ import annotations
+
+import os
+import tempfile
+from datetime import date, timedelta
+
+import pytest
+
+os.environ["DOJO_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
+
+from dojo import config, db, gamify, nlp  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def fresh_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dojo.db")
+    db.reset_connection()
+    db.connect()
+    yield
+    db.reset_connection()
+
+
+# ────── persistence ──────
+
+def test_tasks_survive_a_new_connection():
+    db.add_task("2026-09-02", "write the thing", "High")
+    db.reset_connection()
+    assert [t["text"] for t in db.list_tasks("2026-09-02")] == ["write the thing"]
+
+
+def test_identical_tasks_are_addressed_independently():
+    """The old code used list.index(), which matched by value and hit the wrong row."""
+    first = db.add_task("2026-09-02", "email", "Low")
+    second = db.add_task("2026-09-02", "email", "Low")
+    assert first != second
+    db.delete_task(first)
+    remaining = db.list_tasks("2026-09-02")
+    assert len(remaining) == 1 and remaining[0]["id"] == second
+
+
+def test_notes_and_tags_round_trip():
+    task_id = db.add_task("2026-09-02", "x", tags=["Work", " work ", "home"])
+    db.update_task(task_id, notes="line one\nline two")
+    task = db.get_task(task_id)
+    assert task["tags"] == ["home", "work"]  # deduped, lowercased, sorted
+    assert task["notes"] == "line one\nline two"
+
+
+# ────── xp ──────
+
+def test_xp_matches_priority_and_reverses_on_reopen():
+    task_id = db.add_task("2026-09-02", "big one", "Critical")
+    assert db.set_completed(task_id, True) == config.BASE_XP["Critical"]
+    assert db.total_xp() == 50
+    assert db.set_completed(task_id, False) == -50
+    assert db.total_xp() == 0
+
+
+def test_streak_multiplier_and_early_bonus():
+    due = (date.today() + timedelta(days=2)).isoformat()
+    task_id = db.add_task(date.today().isoformat(), "ship", "High", due_date=due)
+    gained = db.set_completed(task_id, True, streak=7)
+    assert gained == int(round(30 * 1.5)) + config.EARLY_BONUS
+
+
+def test_clean_sweep_is_granted_and_revoked():
+    day = "2026-09-02"
+    ids = [db.add_task(day, f"task {i}", "Low") for i in range(3)]
+    for task_id in ids:
+        db.set_completed(task_id, True)
+    assert db.xp_for_day(day) == 3 * 10 + config.SWEEP_BONUS
+    db.set_completed(ids[0], False)  # board no longer clear
+    assert db.xp_for_day(day) == 2 * 10
+
+
+def test_adding_a_task_revokes_a_held_sweep():
+    day = "2026-09-02"
+    for i in range(3):
+        db.set_completed(db.add_task(day, f"t{i}", "Low"), True)
+    assert db.xp_for_day(day) == 55
+    db.add_task(day, "one more", "Low")
+    assert db.xp_for_day(day) == 30
+
+
+def test_subtasks_earn_no_xp_of_their_own():
+    parent = db.add_task("2026-09-02", "parent", "High")
+    child = db.add_task("2026-09-02", "step", "High", parent_id=parent)
+    db.set_completed(child, True)
+    assert db.total_xp() == 0
+    assert db.day_summary("2026-09-02")["total"] == 1  # subtasks stay off the board count
+
+
+def test_deleting_a_parent_removes_its_steps_and_ledger():
+    parent = db.add_task("2026-09-02", "parent", "High")
+    db.add_task("2026-09-02", "step", "High", parent_id=parent)
+    db.set_completed(parent, True)
+    db.delete_task(parent)
+    assert db.list_tasks("2026-09-02") == []
+    assert db.list_subtasks(parent) == []
+    assert db.total_xp() == 0
+
+
+# ────── streaks ──────
+
+def test_streak_survives_an_untouched_morning():
+    """The old streak read 0 every morning until the first task was finished."""
+    today = date.today()
+    for offset in (1, 2, 3):
+        day = (today - timedelta(days=offset)).isoformat()
+        db.set_completed(db.add_task(day, f"t{offset}", "Low"), True)
+    assert db.current_streak(today) == 3
+
+
+def test_streak_breaks_after_a_blank_day():
+    today = date.today()
+    for offset in (2, 3):
+        day = (today - timedelta(days=offset)).isoformat()
+        db.set_completed(db.add_task(day, f"t{offset}", "Low"), True)
+    assert db.current_streak(today) == 0
+
+
+# ────── carry-over ──────
+
+def test_carry_over_moves_into_today_and_is_idempotent():
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    db.add_task(yesterday, "unfinished", "High")
+    db.set_completed(db.add_task(yesterday, "finished", "Low"), True)
+
+    assert db.carry_over(today) == 1
+    assert [t["text"] for t in db.list_tasks(today.isoformat())] == ["unfinished"]
+    assert [t["text"] for t in db.list_tasks(yesterday)] == ["finished"]
+
+    db.set_setting("carried_through", "")
+    assert db.carry_over(today) == 0  # already there, not duplicated
+    assert len(db.list_tasks(today.isoformat())) == 1
+
+
+def test_browsing_an_old_day_never_mutates_it():
+    """The original wrote carried tasks into whichever date you were viewing."""
+    today = date.today()
+    old = (today - timedelta(days=5)).isoformat()
+    older = (today - timedelta(days=9)).isoformat()
+    db.add_task(older, "ancient", "Low")
+    db.carry_over(today)
+    assert db.list_tasks(old) == []
+
+
+def test_carry_over_brings_subtasks_along():
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    parent = db.add_task(yesterday, "parent", "High")
+    db.add_task(yesterday, "step", "High", parent_id=parent)
+    db.carry_over(today)
+    assert db.get_task(parent)["day"] == today.isoformat()
+    assert db.list_subtasks(parent)[0]["day"] == today.isoformat()
+
+
+# ────── parsing ──────
+
+@pytest.mark.parametrize("raw,expected_text,expected_priority,expected_tags", [
+    ("call the dentist tomorrow #health !high", "call the dentist", "High", ["health"]),
+    ("file taxes by 2026-09-15 !critical #admin", "file taxes", "Critical", ["admin"]),
+    ("buy milk", "buy milk", None, []),
+])
+def test_parse_task(raw, expected_text, expected_priority, expected_tags):
+    parsed = nlp.parse_task(raw, today=date(2026, 9, 2))
+    assert parsed["text"] == expected_text
+    assert parsed["priority"] == expected_priority
+    assert parsed["tags"] == expected_tags
+
+
+def test_parse_relative_dates():
+    today = date(2026, 9, 2)  # Wednesday
+    assert nlp.parse_task("gym tomorrow", today=today)["due_date"] == "2026-09-03"
+    assert nlp.parse_task("gym friday", today=today)["due_date"] == "2026-09-04"
+    assert nlp.parse_task("gym in 2 weeks", today=today)["due_date"] == "2026-09-16"
+    assert nlp.parse_task("gym", today=today)["due_date"] is None
+
+
+def test_parse_never_returns_empty_text():
+    assert nlp.parse_task("#work !high", today=date(2026, 9, 2))["text"] == "#work !high"
+
+
+# ────── belts ──────
+
+def test_belts_climb_with_xp():
+    assert config.belt_for_xp(0)[0] == "White"
+    assert config.belt_for_xp(250)[0] == "Yellow"
+    assert config.belt_for_xp(14000)[:2] == ("Black", 8)
+    assert config.belt_for_xp(999999)[3] is None
+    assert 0.0 <= config.belt_progress(1234) <= 1.0
+
+
+def test_xp_preview_matches_what_is_awarded():
+    day = date.today().isoformat()
+    due = (date.today() + timedelta(days=1)).isoformat()
+    preview = gamify.xp_preview("Critical", 7, due_date=due)
+    task_id = db.add_task(day, "match me", "Critical", due_date=due)
+    assert db.set_completed(task_id, True, streak=7) == preview["total"]
+
+
+# ────── backup ──────
+
+def test_export_import_round_trip():
+    day = "2026-09-02"
+    task_id = db.add_task(day, "keep me", "High", tags=["work"], notes="hello")
+    db.add_task(day, "step", "High", parent_id=task_id)
+    db.set_completed(task_id, True)
+    snapshot = db.export_state()
+    before_xp = db.total_xp()
+
+    db.import_state(snapshot)
+    assert db.total_xp() == before_xp
+    restored = db.list_tasks(day)
+    assert len(restored) == 1 and restored[0]["notes"] == "hello"
+    assert restored[0]["tags"] == ["work"]
+    assert len(db.list_subtasks(restored[0]["id"])) == 1
+
+
+def test_legacy_backup_imports():
+    """The v1 format written by the original session_state app."""
+    legacy = {
+        "user_name": "Alex",
+        "theme": "dark",
+        "tasks_by_date": {
+            "2026-08-30": [
+                {"text": "old task", "completed": True, "notes": "n", "priority": "High"},
+                {"text": "still open", "completed": False, "notes": "", "priority": "Low"},
+            ]
+        },
+    }
+    assert db.import_state(legacy) == 2
+    assert db.get_setting("user_name") == "Alex"
+    tasks = db.list_tasks("2026-08-30")
+    assert {t["text"] for t in tasks} == {"old task", "still open"}
+    assert db.total_xp() == config.BASE_XP["High"]

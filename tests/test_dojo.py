@@ -12,14 +12,40 @@ os.environ["DOJO_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 
 from dojo import config, db, gamify, nlp  # noqa: E402
 
+# Every test runs twice: once on SQLite, once on Postgres. The Postgres pass
+# skips unless DOJO_TEST_PG_URL points at a throwaway database — CI supplies
+# one from a service container. Running the identical assertions on both is
+# what keeps the two backends honest with each other.
+PG_URL = os.environ.get("DOJO_TEST_PG_URL", "").strip()
+BACKENDS = ["sqlite", "postgres"]
 
-@pytest.fixture(autouse=True)
-def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "dojo.db")
-    db.reset_connection()
-    db.connect()
+
+@pytest.fixture(autouse=True, params=BACKENDS)
+def fresh_db(request, tmp_path, monkeypatch):
+    if request.param == "postgres":
+        if not PG_URL:
+            pytest.skip("set DOJO_TEST_PG_URL to exercise the Postgres backend")
+        monkeypatch.setenv("DATABASE_URL", PG_URL)
+        db.reset_connection()
+        conn = db.connect()
+        for table in ("xp_log", "tasks", "settings"):
+            conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+        conn.commit()
+        db.reset_connection()
+        db.connect()  # recreates the schema empty
+    else:
+        for var in ("DATABASE_URL", "NEON_DATABASE_URL"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(config, "DB_PATH", tmp_path / "dojo.db")
+        db.reset_connection()
+        db.connect()
     yield
     db.reset_connection()
+
+
+def test_backend_is_the_one_under_test(request):
+    expected = request.node.callspec.params["fresh_db"]
+    assert db.backend() == expected
 
 
 # ────── persistence ──────

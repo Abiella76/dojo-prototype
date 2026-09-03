@@ -135,7 +135,18 @@ with st.sidebar:
     if not ai.available(api_key()):
         st.caption("Set `OPENAI_API_KEY` to enable planning and smart capture.")
     st.caption(f"Theme: **{mode}** — follows your system; override under ⋮ → Settings.")
-    st.caption(f"v{config.APP_VERSION} · data at `{config.DB_PATH}`")
+
+    # Which store is live matters: on Streamlit Cloud a SQLite file is wiped
+    # whenever the app sleeps, so say plainly which one is in use.
+    if db.backend() == "postgres":
+        st.caption("Storage: **Postgres** — your history persists.")
+    else:
+        st.caption(f"Storage: **SQLite** at `{config.DB_PATH}`")
+        st.caption(
+            ":orange[Hosted on Streamlit Cloud this file is wiped when the app "
+            "sleeps.] Set `DATABASE_URL` to a Postgres/Neon database to keep history."
+        )
+    st.caption(f"v{config.APP_VERSION}")
 
 # ────── header ──────
 board_tab, stats_tab = st.tabs(["Quest Log", "Record"])

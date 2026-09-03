@@ -12,18 +12,25 @@ APP_VERSION = "11.0"
 # Overridable so tests and deployments can point somewhere writable.
 DB_PATH = Path(os.environ.get("DOJO_DB", Path.home() / ".dojo" / "dojo.db"))
 
-# ────── priorities ──────
-# Ordinal severity, highest first. Colours come from the reserved *status*
-# palette (never the categorical slots) so a priority can never impersonate a
-# data series. Every badge ships the label alongside the colour, so meaning is
-# never carried by hue alone.
+# ────── priorities / difficulty tiers ──────
+# The stored values never change — they are the keys of the XP table and of
+# every row already in the database. TIER_LABELS and TIER_RANKS are display
+# only, so the quest framing is skin-deep and old data keeps working.
 PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
+TIER_LABELS = {"Critical": "BOSS", "High": "ELITE", "Medium": "STANDARD", "Low": "MINOR"}
+TIER_RANKS = {"Critical": "S", "High": "A", "Medium": "B", "Low": "C"}
+
+# Neon tier ramp. Validated as a categorical set against the dark surface
+# (#101018): CVD separation, normal-vision separation and 3:1 contrast all
+# pass. It deliberately sits above the dark-mode lightness band — being bright
+# is the point of the neon skin — and every tier ships its rank letter and
+# label beside the colour, so hue is never the only channel.
 PRIORITY_COLORS = {
-    "Critical": "#d03b3b",  # status: critical
-    "High": "#ec835a",      # status: serious
-    "Medium": "#fab219",    # status: warning
-    "Low": "#0ca30c",       # status: good
+    "Critical": "#ff3d71",
+    "High": "#ff8a1f",
+    "Medium": "#ffd60a",
+    "Low": "#2dd4a0",
 }
 
 PRIORITY_GLYPHS = {"Critical": "▲▲", "High": "▲", "Medium": "■", "Low": "▾"}
@@ -49,17 +56,20 @@ def streak_multiplier(streak: int) -> float:
 # ────── belts ──────
 # Cumulative lifetime XP required to hold each belt. The curve widens so early
 # ranks arrive quickly and later ones stay meaningful.
+# Each colour is the belt's *display* colour on a dark surface, not the literal
+# dye — a real black belt rendered #000 is invisible here, so the higher ranks
+# use their sheen instead. Every entry clears 4.5:1 against #101018.
 BELTS = [
     ("White", 0, "#e8e6e1"),
-    ("Yellow", 250, "#fab219"),
-    ("Orange", 700, "#ec835a"),
-    ("Green", 1500, "#0ca30c"),
-    ("Blue", 3000, "#2a78d6"),
-    ("Purple", 5500, "#4a3aa7"),
-    ("Brown", 9000, "#7a4a24"),
-    ("Black", 14000, "#26262b"),
-    ("Red", 22000, "#d03b3b"),
-    ("Grandmaster", 35000, "#eda100"),
+    ("Yellow", 250, "#ffd60a"),
+    ("Orange", 700, "#ff8a1f"),
+    ("Green", 1500, "#2dd4a0"),
+    ("Blue", 3000, "#22d3ee"),
+    ("Purple", 5500, "#a78bfa"),
+    ("Brown", 9000, "#c98550"),
+    ("Black", 14000, "#b6bcd4"),
+    ("Red", 22000, "#ff3d71"),
+    ("Grandmaster", 35000, "#ffe14d"),
 ]
 
 
@@ -85,11 +95,18 @@ def belt_progress(total_xp: int) -> float:
 
 
 # ────── chart palette ──────
-# Categorical slots in fixed order (never cycled) from the validated default.
+# Categorical slots in fixed order (never cycled).
 SERIES = {
-    "light": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"],
-    "dark": ["#3987e5", "#d95926", "#199e70", "#c98500"],
+    "light": ["#0891b2", "#eb6834", "#1baf7a", "#eda100"],
+    "dark": ["#22d3ee", "#d95926", "#199e70", "#c98500"],
 }
 
-# Single-hue sequential ramp (blue), lightest -> darkest, for the heatmap.
-SEQUENTIAL = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"]
+# Single-hue sequential ramp for the consistency heatmap, darkest-to-brightest
+# cyan on dark so an empty day recedes into the surface.
+SEQUENTIAL_DARK = ["#0e3f4d", "#12657a", "#0e91ad", "#12b5d4", "#22d3ee", "#7ceaf9"]
+SEQUENTIAL_LIGHT = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"]
+SEQUENTIAL = SEQUENTIAL_DARK  # back-compat alias
+
+
+def sequential(mode: str) -> list[str]:
+    return SEQUENTIAL_DARK if mode == "dark" else SEQUENTIAL_LIGHT

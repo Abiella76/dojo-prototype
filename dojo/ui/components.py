@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 import streamlit as st
 
-from ..config import PRIORITY_COLORS, PRIORITY_GLYPHS, SEQUENTIAL
+from ..config import PRIORITY_COLORS, TIER_LABELS, TIER_RANKS, sequential
 from .theme import css_vars, tokens
 
 
@@ -48,17 +48,23 @@ body {{
 
 # ────── inline pieces ──────
 
-def priority_chip(priority: str) -> str:
+def tier_chip(priority: str) -> str:
+    """Difficulty badge. The rank letter and label ride along with the colour,
+    so the tier never depends on hue alone."""
     colour = PRIORITY_COLORS.get(priority, "#888")
-    glyph = PRIORITY_GLYPHS.get(priority, "")
-    # Glyph + label ride along with the colour, so severity never depends on hue alone.
-    return (f'<span class="chip chip-prio" style="background:{colour}">'
-            f'<span aria-hidden="true">{glyph}</span>{esc(priority)}</span>')
+    label = TIER_LABELS.get(priority, priority)
+    rank = TIER_RANKS.get(priority, "?")
+    return (f'<span class="chip chip-tier" style="background:{colour}" '
+            f'title="{esc(priority)} priority">'
+            f'<span class="chip-rank">{esc(rank)}</span>{esc(label)}</span>')
 
 
-def task_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_total: int = 0) -> str:
+priority_chip = tier_chip  # older name, same badge
+
+
+def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_total: int = 0) -> str:
     today = today or date.today()
-    parts = [priority_chip(task.get("priority", "Medium"))]
+    parts = [tier_chip(task.get("priority", "Medium"))]
 
     due = task.get("due_date")
     if due:
@@ -84,18 +90,18 @@ def task_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_t
         parts.append(f'<span class="chip chip-carried">carried from {esc(task["carried_from"])}</span>')
 
     if sub_total:
-        parts.append(f'<span class="sub-progress">{sub_done}/{sub_total} steps</span>')
+        parts.append(f'<span class="objectives">{sub_done}/{sub_total} objectives</span>')
 
-    return f'<div class="task-meta">{"".join(parts)}</div>'
+    return f'<div class="quest-meta">{"".join(parts)}</div>'
 
 
-def task_header(task: dict, **kwargs) -> None:
-    """Priority anchor + meta chips + title, as one markdown block."""
-    anchor = f'<span class="prio-{esc(task.get("priority", "Medium")).lower()}"></span>'
+def quest_header(task: dict, **kwargs) -> None:
+    """Tier anchor + meta chips + title, as one markdown block."""
+    anchor = f'<span class="tier-{esc(task.get("priority", "Medium")).lower()}"></span>'
     done_cls = " card-done" if task.get("completed") else ""
     st.markdown(
-        f'<div class="task-head{done_cls}">{anchor}{task_meta(task, **kwargs)}'
-        f'<p class="task-title">{esc(task["text"])}</p></div>',
+        f'<div class="quest-head{done_cls}">{anchor}{quest_meta(task, **kwargs)}'
+        f'<p class="quest-title">{esc(task["text"])}</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -104,80 +110,218 @@ def note_block(text: str) -> None:
     st.markdown(f'<div class="note-body">{esc(text)}</div>', unsafe_allow_html=True)
 
 
-# ────── hero: belt, XP, streak ──────
+# ────── HUD: rank, XP bar, streak ──────
 
-def hero(stats: dict[str, Any], name: str, day: dict[str, int], mode: str) -> None:
+def hero(stats: dict[str, Any], name: str, day: dict[str, int], mode: str,
+         gain: int | None = None, gain_note: str = "") -> None:
+    """The game HUD: rank crest, animated XP bar, streak flame, run readouts.
+
+    `gain` erupts a "+N XP" burst out of the XP bar. It is drawn inside this
+    component's own document on purpose: an iframe always paints above the
+    parent's positioned content, so a floating number in the parent page would
+    be hidden behind this panel no matter its z-index.
+    """
     t = tokens(mode)
     progress = stats["progress"]
-    radius, circumference = 46, 2 * 3.14159 * 46
-    offset = circumference * (1 - progress)
     belt_colour = stats["belt_color"]
-    next_label = (f'{stats["next_belt_at"] - stats["xp"]:,} XP to next belt'
-                  if stats["next_belt_at"] else "Highest rank held")
-    score = day["score"]
+    next_label = (f'{stats["next_belt_at"] - stats["xp"]:,} XP TO NEXT RANK'
+                  if stats["next_belt_at"] else "MAX RANK HELD")
+    streak = stats["streak"]
+    # The flame grows and burns faster the longer the run — a glanceable
+    # reward for consistency rather than another number to read.
+    heat = min(streak / 14, 1.0)
+    flame_size = 1 + heat * 0.5
+    flame_speed = 2.2 - heat * 1.1
+    flame_colour = "#ff8a1f" if streak >= 3 else "var(--text-3)"
+
+    burst = (
+        f'<div class="burst">+{gain} XP'
+        f'{f"<small>{esc(gain_note)}</small>" if gain_note else ""}</div>'
+        if gain else ""
+    )
 
     body = f"""
-<div class="hero">
-  <div class="ring-wrap" role="img"
-       aria-label="{esc(stats['belt'])} belt, level {stats['level']}, {progress:.0%} to next belt">
-    <svg viewBox="0 0 110 110" width="110" height="110">
-      <circle cx="55" cy="55" r="{radius}" fill="none" stroke="var(--surface-3)" stroke-width="8"/>
-      <circle cx="55" cy="55" r="{radius}" fill="none" stroke="{belt_colour}" stroke-width="8"
-              stroke-linecap="round" stroke-dasharray="{circumference:.1f}"
-              stroke-dashoffset="{circumference:.1f}"
-              transform="rotate(-90 55 55)">
-        <animate attributeName="stroke-dashoffset" from="{circumference:.1f}" to="{offset:.1f}"
-                 dur="0.9s" fill="freeze" calcMode="spline"
-                 keySplines="0.22 0.61 0.36 1" keyTimes="0;1"/>
-      </circle>
-      <text x="55" y="51" text-anchor="middle" class="ring-lv">LV {stats['level']}</text>
-      <text x="55" y="70" text-anchor="middle" class="ring-belt">{esc(stats['belt'])}</text>
+<div class="hud">
+  <div class="crest" role="img"
+       aria-label="{esc(stats['belt'])} belt, level {stats['level']}, {progress:.0%} to next rank">
+    <svg viewBox="0 0 96 106" width="92" height="102">
+      <defs>
+        <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="{belt_colour}" stop-opacity=".55"/>
+          <stop offset="100%" stop-color="{belt_colour}" stop-opacity=".05"/>
+        </linearGradient>
+      </defs>
+      <path d="M48 2 92 27v52L48 104 4 79V27z" fill="url(#cg)"
+            stroke="{belt_colour}" stroke-width="2"/>
+      <path d="M48 11 84 32v42L48 95 12 74V32z" fill="none"
+            stroke="{belt_colour}" stroke-width="1" opacity=".35"/>
+      <text x="48" y="50" text-anchor="middle" class="crest-lv">{stats['level']}</text>
+      <text x="48" y="66" text-anchor="middle" class="crest-lb">LEVEL</text>
+      <text x="48" y="84" text-anchor="middle" class="crest-belt">{esc(stats['belt']).upper()}</text>
     </svg>
   </div>
-  <div class="hero-main">
-    <p class="hero-kicker">{esc(name)}'s dojo</p>
-    <p class="hero-xp"><b>{stats['xp']:,}</b> XP</p>
-    <div class="bar" aria-hidden="true"><i style="--w:{progress * 100:.1f}%;background:{belt_colour}"></i></div>
-    <p class="hero-sub">{esc(next_label)}</p>
+
+  <div class="hud-main">
+    <p class="hud-kicker">{esc(name)} &middot; RANK {stats['level']}</p>
+    <p class="hud-xp"><b>{stats['xp']:,}</b><span>XP</span></p>
+    <div class="xpbar" aria-hidden="true">
+      <i style="--w:{progress * 100:.1f}%"></i>
+      <u></u>
+    </div>
+    <p class="hud-sub">{esc(next_label)}</p>
   </div>
-  <div class="hero-stats">
-    <div class="stat"><b>{stats['streak']}</b><span>day streak</span></div>
-    <div class="stat"><b>{score}%</b><span>today</span></div>
-    <div class="stat"><b>{day['done']}/{day['total']}</b><span>tasks</span></div>
+
+  {burst}
+  <div class="hud-stats">
+    <div class="stat streak">
+      <span class="flame" style="--fs:{flame_size:.2f};--fd:{flame_speed:.2f}s;--fc:{flame_colour}">
+        &#9650;</span>
+      <b>{streak}</b><span>DAY RUN</span>
+    </div>
+    <div class="stat"><b>{day['score']}%</b><span>CLEARED</span></div>
+    <div class="stat"><b>{day['done']}<em>/{day['total']}</em></b><span>QUESTS</span></div>
   </div>
 </div>
 """
     css = f"""
-.hero {{
-  display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
-  padding: 20px 24px; border-radius: 16px;
-  background: linear-gradient(135deg, var(--surface-2) 0%, var(--surface-3) 100%);
+.hud {{
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 16px 20px; border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(34,211,238,.07), transparent 45%),
+    linear-gradient(180deg, var(--surface-2), var(--surface));
   border: 1px solid var(--border); box-shadow: {t['shadow']};
+  position: relative; overflow: hidden;
 }}
-.ring-lv {{ fill: var(--text); font-size: 15px; font-weight: 700; letter-spacing: .02em; }}
-.ring-belt {{ fill: var(--text-2); font-size: 10.5px; font-weight: 600; letter-spacing: .09em;
-              text-transform: uppercase; }}
-.hero-main {{ flex: 1 1 220px; min-width: 200px; }}
-.hero-kicker {{ margin: 0 0 2px; font-size: .72rem; font-weight: 650; letter-spacing: .1em;
-                text-transform: uppercase; color: var(--text-3); }}
-.hero-xp {{ margin: 0 0 10px; font-size: 1.05rem; color: var(--text-2); }}
-.hero-xp b {{ font-size: 2rem; color: var(--text); font-variant-numeric: tabular-nums;
-              letter-spacing: -.02em; margin-right: 4px; }}
-.bar {{ height: 7px; border-radius: 99px; background: var(--surface); overflow: hidden;
-        border: 1px solid var(--border); }}
-.bar i {{ display: block; height: 100%; width: 0; border-radius: 99px;
-          animation: grow .9s cubic-bezier(.22,.61,.36,1) forwards; }}
-@keyframes grow {{ to {{ width: var(--w); }} }}
-.hero-sub {{ margin: 7px 0 0; font-size: .78rem; color: var(--text-3); }}
-.hero-stats {{ display: flex; gap: 10px; }}
-.stat {{ min-width: 82px; padding: 11px 13px; border-radius: 12px; background: var(--surface);
-         border: 1px solid var(--border); text-align: center; }}
-.stat b {{ display: block; font-size: 1.4rem; font-weight: 650; letter-spacing: -.02em;
-           font-variant-numeric: tabular-nums; }}
-.stat span {{ font-size: .68rem; color: var(--text-3); text-transform: uppercase;
-              letter-spacing: .07em; }}
+.hud::after {{
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px);
+}}
+.crest svg {{ filter: drop-shadow(0 0 12px {belt_colour}55); }}
+.crest-lv {{ fill: var(--text); font-family: var(--font-display); font-size: 26px; font-weight: 800; }}
+.crest-lb {{ fill: var(--text-3); font-size: 8px; font-weight: 700; letter-spacing: .22em; }}
+.crest-belt {{ fill: {belt_colour}; font-size: 9.5px; font-weight: 800; letter-spacing: .13em; }}
+
+.hud-main {{ flex: 1 1 240px; min-width: 210px; }}
+.hud-kicker {{
+  margin: 0 0 3px; font-size: .68rem; font-weight: 700; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--text-3);
+}}
+.hud-xp {{ margin: 0 0 10px; display: flex; align-items: baseline; gap: 6px; }}
+.hud-xp b {{
+  font-family: var(--font-display); font-size: 2.05rem; font-weight: 800;
+  color: var(--text); letter-spacing: .01em;
+  text-shadow: 0 0 18px rgba(34,211,238,.35);
+}}
+.hud-xp span {{ font-size: .78rem; font-weight: 700; letter-spacing: .18em; color: var(--text-3); }}
+
+.xpbar {{
+  position: relative; height: 12px; border-radius: 3px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border);
+}}
+.xpbar i {{
+  display: block; height: 100%; width: 0; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 14px var(--glow);
+  animation: fill 1.1s cubic-bezier(.2,.8,.3,1) forwards;
+}}
+/* a shimmer sweeping the filled portion, so the bar reads as "live" */
+.xpbar u {{
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.5) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: sweep 2.6s 1.1s ease-in-out infinite;
+}}
+@keyframes fill {{ to {{ width: var(--w); }} }}
+@keyframes sweep {{ 60%, 100% {{ transform: translateX(100%); }} }}
+.hud-sub {{
+  margin: 7px 0 0; font-size: .68rem; color: var(--text-3);
+  letter-spacing: .14em; font-weight: 600;
+}}
+
+.hud-stats {{ display: flex; gap: 8px; }}
+.stat {{
+  min-width: 84px; padding: 9px 12px; border-radius: 8px; background: var(--surface);
+  border: 1px solid var(--border); text-align: center; position: relative;
+}}
+.stat b {{
+  display: block; font-family: var(--font-display); font-size: 1.3rem; font-weight: 800;
+  letter-spacing: .01em;
+}}
+.stat b em {{ font-style: normal; font-size: .8rem; color: var(--text-3); }}
+.stat span {{
+  font-size: .6rem; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .14em; font-weight: 700;
+}}
+.streak {{ border-color: color-mix(in srgb, var(--fc, #ff8a1f) 40%, var(--border)); }}
+.flame {{
+  position: absolute; top: -7px; left: 50%; transform: translateX(-50%) scale(var(--fs));
+  color: var(--fc); font-size: .7rem; line-height: 1;
+  filter: drop-shadow(0 0 6px var(--fc));
+  animation: flicker var(--fd) ease-in-out infinite;
+}}
+@keyframes flicker {{
+  0%, 100% {{ opacity: .75; transform: translateX(-50%) scale(var(--fs)); }}
+  50% {{ opacity: 1; transform: translateX(-50%) scale(calc(var(--fs) * 1.22)); }}
+}}
+
+/* reward burst — rises out of the XP bar */
+.burst {{
+  /* anchored to the empty stretch of bar left of the stat tiles, so it never
+     lands on top of the XP total */
+  position: absolute; right: 232px; bottom: 40px; z-index: 4; pointer-events: none;
+  text-align: right;
+  font-family: var(--font-display); font-size: 1.9rem; font-weight: 800;
+  color: var(--accent); letter-spacing: .04em; white-space: nowrap;
+  text-shadow: 0 0 14px var(--glow), 0 0 40px var(--glow);
+  animation: burst 2.1s cubic-bezier(.2,.75,.3,1) forwards;
+}}
+.burst small {{
+  display: block; font-size: .58rem; letter-spacing: .3em;
+  color: var(--accent-2); text-shadow: none; margin-top: 2px;
+}}
+@keyframes burst {{
+  0% {{ opacity: 0; transform: translateY(14px) scale(.6); }}
+  14% {{ opacity: 1; transform: translateY(0) scale(1.15); }}
+  26% {{ transform: translateY(0) scale(1); }}
+  100% {{ opacity: 0; transform: translateY(-54px) scale(1); }}
+}}
+@media (prefers-reduced-motion: reduce) {{ .burst {{ animation: none; opacity: 1; }} }}
 """
-    _frame(body, mode, height=178, extra_css=css)
+    _frame(body, mode, height=168, extra_css=css)
+
+
+def rank_up_banner(belt: str, level: int, colour: str, mode: str) -> None:
+    """Promotion crest, drawn for the rank-up dialog."""
+    body = f"""
+<div class="promo">
+  <svg viewBox="0 0 96 106" width="112" height="124">
+    <path d="M48 2 92 27v52L48 104 4 79V27z" fill="{colour}" fill-opacity=".18"
+          stroke="{colour}" stroke-width="2"/>
+    <text x="48" y="58" text-anchor="middle" class="promo-lv">{level}</text>
+    <text x="48" y="76" text-anchor="middle" class="promo-lb">LEVEL</text>
+  </svg>
+  <b>{esc(belt).upper()} BELT</b>
+  <i>rank {level} reached</i>
+</div>
+"""
+    css = f"""
+.promo {{ text-align: center; padding: 4px 0 10px; }}
+.promo svg {{ filter: drop-shadow(0 0 16px {colour}); animation: pop .7s cubic-bezier(.2,1.6,.4,1) both; }}
+.promo-lv {{ fill: var(--text); font-family: var(--font-display); font-size: 30px; font-weight: 800; }}
+.promo-lb {{ fill: var(--text-3); font-size: 8px; font-weight: 700; letter-spacing: .24em; }}
+.promo b {{
+  display: block; margin-top: 6px; font-family: var(--font-display);
+  font-size: 1.5rem; font-weight: 800; letter-spacing: .1em; color: {colour};
+  text-shadow: 0 0 18px {colour}80;
+}}
+.promo i {{
+  display: block; margin-top: 6px; font-style: normal; font-size: .66rem;
+  letter-spacing: .3em; text-transform: uppercase; color: var(--text-3);
+}}
+@keyframes pop {{ from {{ transform: scale(.3); opacity: 0; }} to {{ transform: scale(1); opacity: 1; }} }}
+"""
+    _frame(body, mode, height=228, extra_css=css)
 
 
 # ────── streak heatmap ──────
@@ -195,6 +339,7 @@ def heatmap(day_xp: dict[str, int], mode: str, *, weeks: int = 52,
     start = today - timedelta(days=weeks * 7 - 1)
     start -= timedelta(days=(start.weekday() + 1) % 7)  # back to a Sunday
 
+    ramp = sequential(mode)
     values = [v for v in day_xp.values() if v > 0]
     peak = max(values) if values else 1
     cuts = [peak * f for f in (0.0, 0.2, 0.4, 0.6, 0.8)]
@@ -204,8 +349,8 @@ def heatmap(day_xp: dict[str, int], mode: str, *, weeks: int = 52,
             return "var(--surface-3)"
         for i in range(len(cuts) - 1, -1, -1):
             if xp > cuts[i]:
-                return SEQUENTIAL[min(i + 1, len(SEQUENTIAL) - 1)]
-        return SEQUENTIAL[0]
+                return ramp[min(i + 1, len(ramp) - 1)]
+        return ramp[0]
 
     cell, gap, top = 13, 3, 16
     pitch = cell + gap
@@ -240,7 +385,7 @@ def heatmap(day_xp: dict[str, int], mode: str, *, weeks: int = 52,
     )
     legend = "".join(
         f'<span class="sw" style="background:{c}"></span>'
-        for c in ["var(--surface-3)", *SEQUENTIAL[1:]]
+        for c in ["var(--surface-3)", *ramp[1:]]
     )
 
     body = f"""
@@ -313,3 +458,7 @@ def achievement_grid(items: Iterable[dict[str, Any]], mode: str) -> None:
 """
     _frame(f'<div class="grid">{cards}</div>', mode,
            height=int(((len(items) + 3) // 4) * 112 + 12), extra_css=css)
+
+
+quest_header_alias = quest_header
+task_header = quest_header  # older name

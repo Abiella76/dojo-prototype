@@ -1,10 +1,14 @@
 # Dojo
 
-A task manager that keeps score. Finish tasks, earn XP, climb the belts.
+A quest log that keeps score. Clear quests, earn XP, climb the belts.
 
 Built with Streamlit and SQLite. Single user, runs locally, no account needed.
+Neon-arcade skin, dark by default — it follows your system theme, and you can
+override it under ⋮ → Settings.
 
-![Dojo board](docs/board.png)
+![The quest log](docs/board.png)
+
+![The record](docs/record.png)
 
 ## Run it
 
@@ -21,7 +25,7 @@ DOJO_DB=./dojo.db streamlit run app.py
 
 ## What it does
 
-**Capture.** Type a task the way you'd say it and the fields get filled in:
+**Capture.** Type a quest the way you'd say it and the fields get filled in:
 
 ```
 call the dentist tomorrow #health !high
@@ -34,14 +38,15 @@ renew passport in 3 weeks #admin
 `next monday`, `in 3 days`, `in 2 weeks`, `sept 20` and `2026-09-15`.
 This all runs locally with no API key.
 
-**Score.** Completing a task pays out XP:
+**Score.** Clearing a quest pays out XP. Difficulty tiers are a display layer
+over the stored priorities, so old data keeps working:
 
-| Priority | Base XP |
-|---|---|
-| Critical | 50 |
-| High | 30 |
-| Medium | 20 |
-| Low | 10 |
+| Tier | Rank | Stored priority | Base XP |
+|---|---|---|---|
+| BOSS | S | Critical | 50 |
+| ELITE | A | High | 30 |
+| STANDARD | B | Medium | 20 |
+| MINOR | C | Low | 10 |
 
 Plus **+5** for beating a due date and **+25** for clearing a full day's board
 (3 or more tasks), and a streak multiplier of **×1.25** at 3 consecutive days,
@@ -50,16 +55,22 @@ Plus **+5** for beating a due date and **+25** for clearing a full day's board
 Lifetime XP maps to belts — White, Yellow, Orange, Green, Blue, Purple, Brown,
 Black, Red, Grandmaster — and there are 12 achievements to collect.
 
+**Game feel.** Clearing a quest erupts a `+N XP` burst out of the HUD's XP bar.
+Crossing a belt threshold opens a rank-up takeover. The HUD carries a rank
+crest, a shimmering XP bar and a streak flame that burns harder the longer your
+run. Buttons are pressable — they depress onto their own shadow. All of it
+respects `prefers-reduced-motion`.
+
 Reopening a task takes its XP back, and the clean-sweep bonus is recomputed
 whenever the board changes, so the ledger always matches what's on screen.
 
-**Organise.** Due dates, tags, subtask checklists, notes, and filters by status,
-priority, tag or free text. Unfinished work from previous days is moved onto
-today automatically, once per day, tagged with where it came from.
+**Organise.** Due dates, tags, objective checklists, notes, and filters by
+status, tier, tag or free text. Unfinished work from previous days is moved
+onto today automatically, once per day, tagged with where it came from.
 
-**Review.** The Progress tab charts tasks finished per day, cumulative XP,
-where your effort goes by priority, and a year-long consistency calendar —
-plus a table view of the same numbers.
+**Review.** The Record tab charts quests cleared per day, cumulative XP, where
+your effort goes by tier, and a year-long consistency calendar — plus a table
+view of the same numbers.
 
 ## AI assist (optional)
 
@@ -88,14 +99,14 @@ the older `session_state` version of this app import too.
 
 ```
 app.py                 entry point, sidebar, routing
-dojo/config.py         priorities, XP rules, belts, palette
+dojo/config.py         tiers, XP rules, belts, validated palettes
 dojo/db.py             SQLite storage, XP ledger, carry-over, import/export
 dojo/gamify.py         XP preview, belt progress, achievements
 dojo/nlp.py            local natural-language task parser
 dojo/ai.py             optional LLM assist, degrades gracefully
-dojo/ui/theme.py       design tokens and CSS
-dojo/ui/components.py  HTML/SVG components (belt ring, heatmap, chips)
-dojo/ui/board.py       the daily board
+dojo/ui/theme.py       design tokens and the neon-arcade CSS
+dojo/ui/components.py  HTML/SVG components (HUD, heatmap, tier chips, crest)
+dojo/ui/board.py       the quest log
 dojo/ui/stats.py       charts and history
 tests/test_dojo.py     unit tests
 ```
@@ -105,3 +116,16 @@ tests/test_dojo.py     unit tests
 ```bash
 pip install pytest && python -m pytest tests/ -q
 ```
+
+## Colour
+
+The tier ramp and the belt colours are checked, not eyeballed:
+
+* Tiers pass CVD separation, normal-vision separation and 3:1 contrast against
+  the dark card surface as a categorical set. They sit deliberately above the
+  usual dark-mode lightness band — being bright is the point of neon — and each
+  tier always ships its rank letter and label, so hue is never the only channel
+  carrying meaning.
+* Every belt colour clears 4.5:1 on the dark surface. The higher ranks use
+  their sheen rather than their literal dye, because a black belt rendered
+  `#000` is invisible on a near-black page.

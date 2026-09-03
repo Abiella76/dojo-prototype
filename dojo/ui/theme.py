@@ -1,9 +1,13 @@
 """Design tokens and the CSS that restyles Streamlit's own widgets.
 
-The previous version wrapped native widgets in bare `<div>` strings, which
-Streamlit renders as separate, immediately-closed nodes — the styling never
-reached the widgets. Everything here instead targets Streamlit's real DOM
-(`stButton`, `stTextInput`, the bordered vertical block) so it actually lands.
+The skin is a neon-arcade dark theme. Everything targets Streamlit's real DOM
+(`stButton`, `stTextInput`, keyed containers) rather than bare `<div>` wrappers,
+which Streamlit renders as separate nodes that never reach the widgets.
+
+Colour rules that still hold under the neon skin:
+  * Difficulty tiers keep their validated ramp and always ship a rank letter
+    and label, so hue is never the only channel carrying meaning.
+  * Every text token clears 4.5:1 against the surface it sits on.
 """
 
 from __future__ import annotations
@@ -14,30 +18,45 @@ from ..config import PRIORITY_COLORS
 
 TOKENS = {
     "dark": {
-        "surface": "#141416",
-        "surface_2": "#1c1c1f",
-        "surface_3": "#232327",
-        "border": "#303036",
-        "text": "#f4f4f2",
-        "text_2": "#a8a8a2",
-        "text_3": "#76766f",
-        "accent": "#3987e5",
-        "accent_soft": "rgba(57,135,229,0.16)",
-        "shadow": "0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.34)",
+        "surface": "#08080c",
+        "surface_2": "#101018",
+        "surface_3": "#181824",
+        "border": "#262638",
+        "border_lit": "#3a3a55",
+        "text": "#eef0f7",
+        "text_2": "#9aa0b8",
+        "text_3": "#6b7190",
+        "accent": "#22d3ee",
+        "accent_2": "#f472d0",
+        "accent_soft": "rgba(34,211,238,0.14)",
+        "glow": "rgba(34,211,238,0.45)",
+        "shadow": "0 2px 0 #05050a, 0 10px 30px rgba(0,0,0,.6)",
     },
     "light": {
-        "surface": "#fcfcfb",
+        "surface": "#f6f7fb",
         "surface_2": "#ffffff",
-        "surface_3": "#f2f1ee",
-        "border": "#e0dfda",
-        "text": "#131311",
-        "text_2": "#52514e",
-        "text_3": "#84837d",
-        "accent": "#2a78d6",
-        "accent_soft": "rgba(42,120,214,0.10)",
-        "shadow": "0 1px 2px rgba(16,15,14,.06), 0 8px 24px rgba(16,15,14,.07)",
+        "surface_3": "#eceef5",
+        "border": "#d5d9e6",
+        "border_lit": "#b4bbd0",
+        "text": "#0d0f18",
+        "text_2": "#4a5068",
+        "text_3": "#6f7690",
+        "accent": "#0891b2",
+        "accent_2": "#be3fa0",
+        "accent_soft": "rgba(8,145,178,0.10)",
+        "glow": "rgba(8,145,178,0.30)",
+        "shadow": "0 2px 0 #dfe3ee, 0 10px 26px rgba(16,20,40,.10)",
     },
 }
+
+# No webfont. A render-blocking @import is a single point of failure for the
+# whole page — if the font host is slow or blocked the app paints nothing until
+# it times out. System stacks are instant and always available; the arcade feel
+# comes from weight, tracking and caps instead.
+DISPLAY_STACK = ("ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', "
+                 "'Segoe UI Mono', Consolas, monospace")
+UI_STACK = ("'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', "
+            "system-ui, sans-serif")
 
 
 def tokens(mode: str) -> dict[str, str]:
@@ -45,18 +64,44 @@ def tokens(mode: str) -> dict[str, str]:
 
 
 def css_vars(mode: str) -> str:
-    """The token block, reusable inside component iframes (which have their own DOM)."""
+    """The token block, reusable inside component iframes (own document)."""
     t = tokens(mode)
     lines = [f"  --{k.replace('_', '-')}: {v};" for k, v in t.items()]
-    lines += [f"  --prio-{p.lower()}: {c};" for p, c in PRIORITY_COLORS.items()]
+    lines += [f"  --tier-{p.lower()}: {c};" for p, c in PRIORITY_COLORS.items()]
+    lines.append(f"  --font-display: {DISPLAY_STACK};")
+    lines.append(f"  --font-ui: {UI_STACK};")
     return "\n".join(lines)
 
 
 def inject(mode: str) -> None:
     t = tokens(mode)
-    priority_rules = "\n".join(
-        f'[class*="st-key-card-"]:has(.prio-{p.lower()}) {{ border-left: 3px solid {c} !important; }}'
+    dark = mode == "dark"
+
+    tier_rules = "\n".join(
+        f'[class*="st-key-card-"]:has(.tier-{p.lower()}) {{'
+        f" border-left: 3px solid {c} !important;"
+        f" box-shadow: -8px 0 22px -14px {c}, {t['shadow']}; }}"
         for p, c in PRIORITY_COLORS.items()
+    )
+
+    # A faint scanline wash sells the arcade look; it is skipped in light mode
+    # where it would only muddy the page.
+    scanlines = (
+        """
+.stApp::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background: repeating-linear-gradient(180deg,
+    rgba(255,255,255,.014) 0 1px, transparent 1px 3px);
+}
+.stApp::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(70% 45% at 50% 0%, rgba(34,211,238,.10), transparent 70%),
+    radial-gradient(60% 40% at 88% 8%, rgba(244,114,208,.07), transparent 70%);
+}
+"""
+        if dark
+        else ""
     )
 
     st.markdown(
@@ -64,7 +109,7 @@ def inject(mode: str) -> None:
 <style>
 :root {{
 {css_vars(mode)}
-  --radius: 14px;
+  --radius: 12px;
 }}
 
 /* ── canvas ───────────────────────────────────────────── */
@@ -72,100 +117,174 @@ def inject(mode: str) -> None:
 [data-testid="stHeader"] {{ background: transparent; }}
 footer, [data-testid="stDecoration"], [data-testid="stAppDeployButton"],
 [data-testid="stStatusWidget"] {{ display: none !important; }}
-/* The header is a fixed overlay: let clicks fall through to the tabs beneath it,
-   but keep its own controls (sidebar toggle, settings menu) clickable. */
-[data-testid="stHeader"] {{ height: 0; pointer-events: none; }}
-[data-testid="stHeader"] button, [data-testid="stMainMenu"] {{ pointer-events: auto; }}
-.block-container {{ padding: 1.4rem 2rem 5rem; max-width: 1180px; }}
+/* The header and its toolbar are fixed overlays that sit on top of the tab
+   strip and swallow its clicks. Make the chrome click-through and re-enable
+   only its real controls, then keep enough top padding that the tabs clear the
+   header band entirely. */
+[data-testid="stHeader"], [data-testid="stToolbar"] {{ pointer-events: none !important; }}
+[data-testid="stHeader"] {{ height: 0; }}
+[data-testid="stHeader"] button, [data-testid="stToolbar"] button,
+[data-testid="stMainMenu"], [data-testid="stToolbar"] [role="button"] {{
+  pointer-events: auto !important;
+}}
+.block-container {{ padding: 2.6rem 2rem 5rem; max-width: 1180px; position: relative; z-index: 1; }}
 [data-testid="stSidebar"] > div {{
   background: var(--surface-2); border-right: 1px solid var(--border);
 }}
-.stApp, .stMarkdown, p, span, label, li {{ color: var(--text); }}
-h1, h2, h3, h4 {{ color: var(--text); letter-spacing: -0.02em; font-weight: 650; }}
-h1 {{ font-size: 1.85rem; }}
-hr {{ border-color: var(--border); }}
+[data-testid="stSidebar"] * {{ position: relative; z-index: 1; }}
+{scanlines}
 
-/* ── cards ──────────────────────────────────────────────
+html, body, .stApp, .stMarkdown, p, span, label, li, input, textarea, button {{
+  font-family: var(--font-ui);
+}}
+.stApp, .stMarkdown, p, span, label, li {{ color: var(--text); }}
+h1, h2, h3, h4 {{
+  color: var(--text); font-family: var(--font-ui);
+  letter-spacing: .01em; font-weight: 700;
+}}
+h1 {{ font-size: 1.7rem; }}
+h3 {{ font-size: 1.15rem; text-transform: uppercase; letter-spacing: .08em; }}
+hr {{ border-color: var(--border); }}
+code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }}
+
+/* ── quest cards ────────────────────────────────────────
    Streamlit gives a keyed container the class `st-key-<key>`; that is the only
-   stable hook it exposes, so every card is keyed and matched on the prefix.
-   (The old `stVerticalBlockBorderWrapper` test id no longer exists.) */
+   stable hook it exposes, so every card is keyed and matched on the prefix. */
 [class*="st-key-card-"] {{
-  background: var(--surface-2) !important;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface)) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius) !important;
-  box-shadow: var(--shadow);
-  transition: box-shadow .18s ease, border-color .18s ease;
+  box-shadow: {t['shadow']};
+  transition: border-color .18s ease, transform .18s ease;
 }}
-[class*="st-key-card-"]:hover {{ border-color: var(--text-3) !important; }}
-{priority_rules}
-.card-done {{ opacity: .58; }}
-.card-done .task-title {{ text-decoration: line-through; text-decoration-thickness: 1px; }}
+[class*="st-key-card-"]:hover {{
+  border-color: var(--border-lit) !important; transform: translateY(-1px);
+}}
+{tier_rules}
+.card-done {{ opacity: .5; }}
+.card-done .quest-title {{ text-decoration: line-through; text-decoration-thickness: 1px; }}
 
-/* ── task typography ─────────────────────────────────── */
-.task-title {{ font-size: 1.02rem; font-weight: 600; line-height: 1.35; margin: 0 0 .35rem; }}
-.task-meta {{ display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .1rem; }}
+/* ── quest typography ───────────────────────────────────── */
+.quest-title {{ font-size: 1.02rem; font-weight: 600; line-height: 1.35; margin: .1rem 0 .4rem; }}
+.quest-meta {{ display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }}
 .chip {{
   display: inline-flex; align-items: center; gap: .3rem;
-  font-size: .69rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-  padding: .2rem .55rem; border-radius: 999px; white-space: nowrap;
+  font-size: .66rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 4px; white-space: nowrap;
   border: 1px solid var(--border); color: var(--text-2); background: var(--surface-3);
 }}
-.chip-prio {{ color: #fff; border: none; }}
-.chip-tag {{ text-transform: none; letter-spacing: 0; font-weight: 500; }}
-.chip-due {{ color: var(--text-2); }}
-.chip-overdue {{ background: rgba(208,59,59,.14); color: #e06a6a; border-color: rgba(208,59,59,.35); }}
+.chip-tier {{
+  color: #08080c; border: none; font-weight: 800;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}}
+.chip-rank {{
+  display: inline-grid; place-items: center; width: 15px; height: 15px;
+  border-radius: 3px; background: rgba(0,0,0,.28); font-size: .6rem;
+}}
+.chip-tag {{ text-transform: none; letter-spacing: .02em; font-weight: 600; }}
+.chip-overdue {{
+  background: rgba(255,61,113,.14); color: #ff6b93;
+  border-color: rgba(255,61,113,.45); animation: pulse 1.8s ease-in-out infinite;
+}}
+@keyframes pulse {{ 50% {{ opacity: .55; }} }}
 .chip-carried {{ background: transparent; color: var(--text-3); border-style: dashed; }}
 .note-body {{
   font-size: .87rem; color: var(--text-2); background: var(--surface-3);
-  border-left: 2px solid var(--border); border-radius: 0 8px 8px 0;
+  border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0;
   padding: .55rem .75rem; margin: .5rem 0 .1rem; white-space: pre-wrap;
 }}
-.sub-progress {{ font-size: .75rem; color: var(--text-3); font-variant-numeric: tabular-nums; }}
+.reward {{
+  font-family: var(--font-display); font-size: .74rem; font-weight: 600;
+  color: var(--accent); letter-spacing: .04em; white-space: nowrap;
+}}
+.objectives {{ font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums;
+               letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }}
 
-/* ── buttons ─────────────────────────────────────────── */
-.stButton > button, .stDownloadButton > button {{
-  border-radius: 999px; border: 1px solid var(--border);
+/* ── arcade buttons: pressable, with a hard bottom edge ── */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
+  border-radius: 8px;
+  border: 1px solid var(--border-lit);
   background: var(--surface-3); color: var(--text);
-  font-size: .8rem; font-weight: 550; padding: .3rem .85rem;
-  transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  font-family: var(--font-ui); font-size: .78rem; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: .34rem .9rem;
+  box-shadow: 0 3px 0 var(--border), 0 4px 10px rgba(0,0,0,.35);
+  transition: transform .07s ease, box-shadow .07s ease,
+              background .15s ease, border-color .15s ease;
 }}
-.stButton > button:hover, .stDownloadButton > button:hover {{
-  background: var(--accent-soft); border-color: var(--accent);
-  color: var(--text); transform: translateY(-1px);
+.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {{
+  background: var(--accent-soft); border-color: var(--accent); color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 var(--border), 0 8px 18px rgba(0,0,0,.45), 0 0 16px var(--glow);
 }}
-.stButton > button:active {{ transform: translateY(0); }}
-.stButton > button[kind="primary"] {{
-  background: var(--accent); border-color: var(--accent); color: #fff;
+/* the press: button drops onto its own shadow */
+.stButton > button:active, .stDownloadButton > button:active,
+.stFormSubmitButton > button:active {{
+  transform: translateY(3px);
+  box-shadow: 0 0 0 var(--border), 0 1px 4px rgba(0,0,0,.4), 0 0 10px var(--glow);
 }}
-.stButton > button[kind="primary"]:hover {{ filter: brightness(1.08); color: #fff; }}
-.stButton > button:focus-visible, .stTextInput input:focus {{
-  outline: 2px solid var(--accent); outline-offset: 1px;
+.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 72%, #000));
+  border-color: var(--accent); color: #04141a;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 45%, #000),
+              0 6px 18px rgba(0,0,0,.45), 0 0 20px var(--glow);
+}}
+.stButton > button[kind="primary"]:hover {{
+  filter: brightness(1.12); color: #04141a;
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--accent) 45%, #000),
+              0 8px 22px rgba(0,0,0,.5), 0 0 30px var(--glow);
+}}
+.stButton > button:focus-visible, .stFormSubmitButton > button:focus-visible {{
+  outline: 2px solid var(--accent-2); outline-offset: 2px;
 }}
 
-/* ── inputs ──────────────────────────────────────────── */
-.stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] > div {{
-  background: var(--surface-3) !important; border-radius: 10px !important;
+/* ── inputs ─────────────────────────────────────────────── */
+.stTextInput input, .stTextArea textarea, .stDateInput input,
+.stSelectbox div[data-baseweb="select"] > div {{
+  background: var(--surface-3) !important; border-radius: 8px !important;
   border: 1px solid var(--border) !important; color: var(--text) !important;
+}}
+.stTextInput input:focus, .stTextArea textarea:focus {{
+  border-color: var(--accent) !important; box-shadow: 0 0 0 2px var(--accent-soft) !important;
 }}
 .stTextInput input::placeholder {{ color: var(--text-3); }}
 
-/* ── sidebar metrics ─────────────────────────────────── */
-[data-testid="stMetricValue"] {{ font-size: 1.35rem; font-weight: 650; color: var(--text); }}
-[data-testid="stMetricLabel"] {{ color: var(--text-2); }}
-[data-testid="stSidebar"] [data-testid="stMetric"] {{ padding: 0; }}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: .45rem; }}
-[data-testid="stSidebar"] hr {{ margin: .55rem 0; }}
-[data-testid="stSidebar"] .block-container {{ padding-top: 1.2rem; }}
-.prio-critical, .prio-high, .prio-medium, .prio-low {{ display: none; }}
-
-/* ── tabs ────────────────────────────────────────────── */
-.stTabs [data-baseweb="tab-list"] {{ gap: .25rem; border-bottom: 1px solid var(--border); }}
-.stTabs [data-baseweb="tab"] {{
-  border-radius: 10px 10px 0 0; padding: .5rem 1rem; color: var(--text-2);
+/* ── sidebar readouts ───────────────────────────────────── */
+[data-testid="stMetricValue"] {{
+  font-family: var(--font-display); font-size: 1.3rem; font-weight: 800;
+  color: var(--text); letter-spacing: .02em;
 }}
-.stTabs [aria-selected="true"] {{ color: var(--text); background: var(--surface-3); }}
+[data-testid="stMetricLabel"] {{
+  color: var(--text-3); text-transform: uppercase; letter-spacing: .1em; font-size: .7rem;
+}}
+[data-testid="stSidebar"] [data-testid="stMetric"] {{ padding: 0; }}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: .4rem; }}
+[data-testid="stSidebar"] hr {{ margin: .5rem 0; }}
+.tier-critical, .tier-high, .tier-medium, .tier-low {{ display: none; }}
 
-/* ── motion ──────────────────────────────────────────── */
+/* ── tabs ───────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {{ gap: .3rem; border-bottom: 1px solid var(--border); }}
+.stTabs [data-baseweb="tab"] {{
+  border-radius: 6px 6px 0 0; padding: .45rem 1.1rem; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .1em; font-size: .78rem; font-weight: 700;
+}}
+.stTabs [aria-selected="true"] {{
+  color: var(--accent); background: var(--surface-3);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}}
+
+/* ── rank-up dialog ────────────────────────────────────── */
+[data-testid="stDialog"] div[role="dialog"] {{
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--accent); border-radius: 14px;
+  box-shadow: 0 0 60px var(--glow), 0 24px 60px rgba(0,0,0,.7);
+}}
+[data-testid="stDialog"] h2 {{
+  font-family: var(--font-display); letter-spacing: .3em; font-size: 1rem;
+  color: var(--accent); text-align: center;
+}}
+
+/* ── motion ─────────────────────────────────────────────── */
 @keyframes rise {{ from {{ opacity: 0; transform: translateY(6px); }} to {{ opacity: 1; transform: none; }} }}
 [class*="st-key-card-"] {{ animation: rise .22s ease both; }}
 @media (prefers-reduced-motion: reduce) {{

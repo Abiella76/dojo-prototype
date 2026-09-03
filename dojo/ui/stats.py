@@ -16,7 +16,7 @@ import pandas as pd
 import streamlit as st
 
 from .. import db, gamify
-from ..config import PRIORITIES, PRIORITY_COLORS, SERIES
+from ..config import PRIORITIES, PRIORITY_COLORS, SERIES, TIER_LABELS
 from . import components as c
 from .theme import tokens
 
@@ -70,27 +70,27 @@ def render(mode: str, today: date | None = None) -> None:
 
     # ── headline numbers: a stat row, not a chart ──
     row = st.columns(4)
-    row[0].metric("Tasks finished", f"{int(frame['done'].sum()):,}", help=f"In the last {label}")
+    row[0].metric("Quests cleared", f"{int(frame['done'].sum()):,}", help=f"In the last {label}")
     row[1].metric("XP earned", f"{int(frame['xp'].sum()):,}")
     rate = frame["done"].sum() / frame["total"].sum() * 100 if frame["total"].sum() else 0
     row[2].metric("Completion rate", f"{rate:.0f}%")
-    row[3].metric("Best day", f"{int(frame['done'].max())} tasks")
+    row[3].metric("Best day", f"{int(frame['done'].max())} quests")
 
     st.divider()
 
     # ── tasks finished per day ──
-    st.markdown("#### Tasks finished per day")
+    st.markdown("#### Quests cleared per day")
     bars = (
         alt.Chart(frame)
         .mark_bar(size=max(3, min(16, int(560 / max(len(frame), 1)))),
                   cornerRadiusEnd=4, color=series)
         .encode(
             x=alt.X("date:T", title=None, axis=alt.Axis(format="%b %-d", labelAngle=0)),
-            y=alt.Y("done:Q", title="tasks", axis=alt.Axis(tickMinStep=1)),
+            y=alt.Y("done:Q", title="quests", axis=alt.Axis(tickMinStep=1)),
             tooltip=[
                 alt.Tooltip("date:T", title="Day", format="%a %b %-d, %Y"),
-                alt.Tooltip("done:Q", title="Finished"),
-                alt.Tooltip("total:Q", title="On the board"),
+                alt.Tooltip("done:Q", title="Cleared"),
+                alt.Tooltip("total:Q", title="Logged"),
             ],
         )
         .properties(height=190)
@@ -120,27 +120,29 @@ def render(mode: str, today: date | None = None) -> None:
     st.markdown("#### Where the effort goes")
     breakdown = pd.DataFrame(db.priority_breakdown((today - timedelta(days=days - 1)).isoformat()))
     if breakdown.empty:
-        st.caption("No tasks in this window yet.")
+        st.caption("No quests in this window yet.")
     else:
         breakdown["open"] = breakdown["total"] - breakdown["done"]
         breakdown = breakdown[breakdown["priority"].isin(PRIORITIES)]
+        breakdown["tier"] = breakdown["priority"].map(TIER_LABELS)
+        tier_order = [TIER_LABELS[p] for p in PRIORITIES]
         # Priority is ordinal severity: the axis labels each row, so colour is
         # reinforcement rather than the only channel carrying meaning.
         mix = (
             alt.Chart(breakdown)
             .mark_bar(cornerRadiusEnd=4, height=22)
             .encode(
-                y=alt.Y("priority:N", sort=PRIORITIES, title=None),
-                x=alt.X("done:Q", title="finished", axis=alt.Axis(tickMinStep=1)),
+                y=alt.Y("tier:N", sort=tier_order, title=None),
+                x=alt.X("done:Q", title="cleared", axis=alt.Axis(tickMinStep=1)),
                 color=alt.Color(
-                    "priority:N", sort=PRIORITIES, legend=None,
-                    scale=alt.Scale(domain=PRIORITIES,
+                    "tier:N", sort=tier_order, legend=None,
+                    scale=alt.Scale(domain=tier_order,
                                     range=[PRIORITY_COLORS[p] for p in PRIORITIES]),
                 ),
                 tooltip=[
-                    alt.Tooltip("priority:N", title="Priority"),
-                    alt.Tooltip("done:Q", title="Finished"),
-                    alt.Tooltip("open:Q", title="Still open"),
+                    alt.Tooltip("tier:N", title="Tier"),
+                    alt.Tooltip("done:Q", title="Cleared"),
+                    alt.Tooltip("open:Q", title="Still active"),
                     alt.Tooltip("total:Q", title="Total"),
                 ],
             )

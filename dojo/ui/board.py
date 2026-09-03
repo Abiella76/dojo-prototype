@@ -1,4 +1,4 @@
-"""The daily board: quick capture, filters, task cards, coach panel."""
+"""The quest log: capture, filters, quest cards, and the strategist panel."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import date
 import streamlit as st
 
 from .. import ai, db, gamify
-from ..config import PRIORITIES
+from ..config import PRIORITIES, TIER_LABELS
 from . import components as c
 
 
@@ -22,16 +22,18 @@ def quick_add(day: str, api_key: str | None) -> None:
         cols = st.columns([6, 3, 1.4])
         with cols[0]:
             raw = st.text_input(
-                "New task", placeholder="e.g. call the dentist tomorrow #health !high",
+                "New quest", placeholder="accept a quest — e.g. call the dentist tomorrow #health !high",
                 label_visibility="collapsed",
             )
         with cols[1]:
             choice = st.selectbox(
-                "Priority", ["Auto", *PRIORITIES], label_visibility="collapsed",
-                help="Auto reads !high / !critical from the text, or infers one.",
+                "Difficulty", ["Auto", *PRIORITIES],
+                format_func=lambda p: p if p == "Auto" else f"{TIER_LABELS[p]} · {p}",
+                label_visibility="collapsed",
+                help="Auto reads !high / !critical from the text, or infers a tier.",
             )
         with cols[2]:
-            submitted = st.form_submit_button("Add", type="primary", width="stretch")
+            submitted = st.form_submit_button("Accept", type="primary", width="stretch")
 
     smart = "on" if ai.available(api_key) else "off"
     st.caption(
@@ -48,15 +50,15 @@ def quick_add(day: str, api_key: str | None) -> None:
         )
         for step in parsed.get("subtasks", []):
             db.add_task(day, step, priority, parent_id=task_id)
-        bits = [priority]
+        bits = [TIER_LABELS.get(priority, priority)]
         if parsed["due_date"]:
             bits.append(f"due {parsed['due_date']}")
         if parsed["tags"]:
             bits.append(" ".join(f"#{t}" for t in parsed["tags"]))
-        st.toast(f"Added — {' · '.join(bits)}")
+        st.toast(f"Quest accepted — {' · '.join(bits)}")
         _rerun()
     elif submitted:
-        st.warning("Nothing to add — type a task first.")
+        st.warning("Nothing to accept — write a quest first.")
 
 
 # ────── filters ──────
@@ -66,25 +68,27 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
     cols = st.columns([2.2, 2.2, 2.6, 3])
     with cols[0]:
         status = st.segmented_control(
-            "Status", ["All", "Open", "Done"], default="All",
+            "Status", ["All", "Active", "Cleared"], default="All",
             key="f_status", label_visibility="collapsed",
         ) or "All"
     with cols[1]:
-        priority = st.selectbox("Priority", ["Any priority", *PRIORITIES],
-                                key="f_prio", label_visibility="collapsed")
+        priority = st.selectbox(
+            "Difficulty", ["Any tier", *PRIORITIES],
+            format_func=lambda p: p if p == "Any tier" else TIER_LABELS[p],
+            key="f_prio", label_visibility="collapsed")
     with cols[2]:
         tag = st.selectbox("Tag", ["Any tag", *[f"#{t}" for t in tags]],
                            key="f_tag", label_visibility="collapsed")
     with cols[3]:
-        query = st.text_input("Search", placeholder="Search tasks…",
+        query = st.text_input("Search", placeholder="Search quests…",
                               key="f_query", label_visibility="collapsed")
 
     out = tasks
-    if status == "Open":
+    if status == "Active":
         out = [t for t in out if not t["completed"]]
-    elif status == "Done":
+    elif status == "Cleared":
         out = [t for t in out if t["completed"]]
-    if priority != "Any priority":
+    if priority != "Any tier":
         out = [t for t in out if t["priority"] == priority]
     if tag != "Any tag":
         out = [t for t in out if tag.lstrip("#") in (t.get("tags") or [])]
@@ -109,7 +113,7 @@ def _subtask_panel(task: dict, api_key: str | None) -> None:
                 db.set_completed(sub["id"], checked)
                 _rerun()
         with row[1]:
-            if st.button("✕", key=f"subdel_{sub['id']}", help="Remove step"):
+            if st.button("✕", key=f"subdel_{sub['id']}", help="Remove objective"):
                 db.delete_task(sub["id"])
                 _rerun()
 
@@ -121,7 +125,7 @@ def _subtask_panel(task: dict, api_key: str | None) -> None:
             _rerun()
 
     if ai.available(api_key) and not subs:
-        if st.button("Suggest steps", key=f"aisub_{task['id']}"):
+        if st.button("Suggest objectives", key=f"aisub_{task['id']}"):
             with st.spinner("Thinking…"):
                 steps = ai.suggest_subtasks(task["text"], key=api_key)
             if steps:
@@ -134,11 +138,12 @@ def _subtask_panel(task: dict, api_key: str | None) -> None:
 
 def _edit_panel(task: dict) -> None:
     with st.form(f"edit_{task['id']}", border=False):
-        text = st.text_input("Task", value=task["text"])
+        text = st.text_input("Quest", value=task["text"])
         row = st.columns(2)
         with row[0]:
-            priority = st.selectbox("Priority", PRIORITIES,
-                                    index=PRIORITIES.index(task["priority"]))
+            priority = st.selectbox(
+                "Difficulty", PRIORITIES, index=PRIORITIES.index(task["priority"]),
+                format_func=lambda p: f"{TIER_LABELS[p]} · {p}")
         with row[1]:
             current_due = date.fromisoformat(task["due_date"]) if task.get("due_date") else None
             due = st.date_input("Due date", value=current_due, format="YYYY-MM-DD")
@@ -151,7 +156,7 @@ def _edit_panel(task: dict) -> None:
                 due_date=None if clear_due or due is None else due.isoformat(),
                 tags=[t.lstrip("#") for t in tags.split()],
             )
-            st.toast("Task updated")
+            st.toast("Quest updated")
             _rerun()
 
 
@@ -160,7 +165,7 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
     sub_done = sum(1 for s in subs if s["completed"])
 
     with st.container(border=True, key=f"card-task-{task['id']}"):
-        c.task_header(task, today=today, sub_done=sub_done, sub_total=len(subs))
+        c.quest_header(task, today=today, sub_done=sub_done, sub_total=len(subs))
 
         cols = st.columns([2.1, 1.5, 1.4, 1.6, 1.2, 2.7])
         with cols[0]:
@@ -169,15 +174,17 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
                     db.set_completed(task["id"], False)
                     _rerun()
             else:
-                if st.button("Complete", key=f"done_{task['id']}", type="primary",
+                if st.button("Clear", key=f"done_{task['id']}", type="primary",
                              width="stretch"):
                     before_level = gamify.lifetime_stats()["level"]
                     gained = db.set_completed(task["id"], True, streak=streak)
                     after = gamify.lifetime_stats()
-                    st.toast(f"+{gained} XP — {after['xp']:,} total")
+                    # Handed to the next run so the popup animates on a fresh
+                    # page rather than being wiped by the rerun.
+                    st.session_state["xp_gain"] = gained
+                    st.session_state["xp_note"] = TIER_LABELS.get(task["priority"], "")
                     if after["level"] > before_level:
-                        st.balloons()
-                        st.session_state["belt_up"] = after["belt"]
+                        st.session_state["belt_up"] = (after["belt"], after["level"])
                     _rerun()
 
         with cols[1]:
@@ -200,10 +207,10 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
 
         with cols[4]:
             with st.popover("⋯", width="stretch"):
-                st.caption("Delete this task and its steps?")
-                if st.button("Delete", key=f"del_{task['id']}", width="stretch"):
+                st.caption("Abandon this quest and its objectives?")
+                if st.button("Abandon", key=f"del_{task['id']}", width="stretch"):
                     db.delete_task(task["id"])
-                    st.toast("Task deleted")
+                    st.toast("Quest abandoned")
                     _rerun()
 
         if not task["completed"]:
@@ -211,7 +218,7 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
                                         due_date=task.get("due_date"), today=today)
             with cols[5]:
                 st.markdown(
-                    f"<span class='sub-progress'>worth {preview['total']} XP</span>",
+                    f"<span class='reward'>▸ {preview['total']} XP</span>",
                     unsafe_allow_html=True,
                 )
 
@@ -223,12 +230,12 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
 
 def coach_panel(open_tasks: list[dict], stats: dict, api_key: str | None) -> None:
     if not open_tasks:
-        st.success("Board clear. Nothing open for this day.")
+        st.success("QUEST LOG CLEAR — nothing active for this day.")
         return
 
     with st.container(border=True, key="card-coach"):
         if ai.available(api_key):
-            if st.button("Plan my day", key="plan_btn"):
+            if st.button("Plan route", key="plan_btn"):
                 with st.spinner("Reading your board…"):
                     st.session_state["briefing"] = ai.daily_briefing(
                         open_tasks, stats, key=api_key)
@@ -240,10 +247,11 @@ def coach_panel(open_tasks: list[dict], stats: dict, api_key: str | None) -> Non
                 if brief.get("note"):
                     c.note_block(brief["note"])
                 return
-            st.caption("Ask the coach to sequence today's board.")
+            st.caption("Ask the strategist to sequence today's quests.")
         else:
-            st.markdown("**Suggested order**")
+            st.markdown("**Recommended route**")
             for i, task in enumerate(ai.fallback_order(open_tasks)[:5], 1):
                 due = f" · due {task['due_date']}" if task.get("due_date") else ""
-                st.markdown(f"{i}. {c.esc(task['text'])} — {task['priority']}{due}")
+                tier = TIER_LABELS.get(task["priority"], task["priority"])
+                st.markdown(f"{i}. {c.esc(task['text'])} — {tier}{due}")
             st.caption("Overdue first, then by priority. Set OPENAI_API_KEY for AI planning.")

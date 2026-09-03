@@ -56,18 +56,18 @@ def lifetime_stats() -> dict[str, Any]:
 
 # (key, label, description, predicate over lifetime_stats)
 ACHIEVEMENTS = [
-    ("first", "First Step", "Finish your first task", lambda s: s["done"] >= 1),
-    ("ten", "Getting Warm", "Finish 10 tasks", lambda s: s["done"] >= 10),
-    ("century", "Century", "Finish 100 tasks", lambda s: s["done"] >= 100),
-    ("five_hundred", "Veteran", "Finish 500 tasks", lambda s: s["done"] >= 500),
-    ("streak3", "Momentum", "Hold a 3-day streak", lambda s: s["streak"] >= 3),
-    ("streak7", "Week Warrior", "Hold a 7-day streak", lambda s: s["streak"] >= 7),
-    ("streak30", "Iron Month", "Hold a 30-day streak", lambda s: s["streak"] >= 30),
-    ("sweep", "Clean Sweep", "Clear a full day's board", lambda s: s["sweeps"] >= 1),
-    ("sweep10", "Spotless", "Clear the board 10 times", lambda s: s["sweeps"] >= 10),
-    ("crisis", "Crisis Manager", "Finish 25 Critical tasks", lambda s: s["critical_done"] >= 25),
+    ("first", "First Step", "Clear your first quest", lambda s: s["done"] >= 1),
+    ("ten", "Getting Warm", "Clear 10 quests", lambda s: s["done"] >= 10),
+    ("century", "Century", "Clear 100 quests", lambda s: s["done"] >= 100),
+    ("five_hundred", "Veteran", "Clear 500 quests", lambda s: s["done"] >= 500),
+    ("streak3", "Momentum", "Hold a 3-day run", lambda s: s["streak"] >= 3),
+    ("streak7", "Week Warrior", "Hold a 7-day run", lambda s: s["streak"] >= 7),
+    ("streak30", "Iron Month", "Hold a 30-day run", lambda s: s["streak"] >= 30),
+    ("sweep", "Clean Sweep", "Clear a full day's log", lambda s: s["sweeps"] >= 1),
+    ("sweep10", "Spotless", "Clear the log 10 times", lambda s: s["sweeps"] >= 10),
+    ("crisis", "Boss Slayer", "Clear 25 BOSS quests", lambda s: s["critical_done"] >= 25),
     ("early", "Ahead of Time", "Beat 20 due dates", lambda s: s["early"] >= 20),
-    ("black", "Black Belt", "Reach the Black belt", lambda s: s["level"] >= 8),
+    ("black", "Black Belt", "Reach rank 8", lambda s: s["level"] >= 8),
 ]
 
 

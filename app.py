@@ -19,7 +19,27 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-db.connect()
+try:
+    db.connect()
+except db.StorageError as exc:
+    # A bad DATABASE_URL should explain itself, not dump a traceback at whoever
+    # opens the app. The message deliberately carries no credentials.
+    st.error(f"**Database connection failed.** {exc}")
+    st.markdown(
+        """
+Check the `DATABASE_URL` secret under **⋮ → Settings → Secrets**:
+
+* It must be one line of TOML, quotes included:
+  `DATABASE_URL = "postgresql://user:pass@host/dbname?sslmode=require"`
+* Copy the URI from Neon's **Connection Details** — not the `psql ...` command,
+  and not a Prisma or JDBC variant.
+* Keep `?sslmode=require` on the end.
+* A password containing `@ : / ?` or `#` must be percent-encoded.
+
+Remove the secret entirely to fall back to local SQLite storage.
+"""
+    )
+    st.stop()
 
 
 def api_key() -> str | None:

@@ -106,6 +106,29 @@ def _is_pg(url: str | None) -> bool:
     return bool(url) and url.startswith(_PG_PREFIXES)
 
 
+class StorageError(RuntimeError):
+    """A configured database could not be reached. Carries no credentials."""
+
+
+def safe_target(url: str | None) -> str:
+    """Describe a URL as host/database, with any credentials stripped.
+
+    Safe to print in the UI or logs — a connection string carries a password.
+    """
+    if not url:
+        return "(none)"
+    try:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(url)
+        host = parts.hostname or "(no host)"
+        port = f":{parts.port}" if parts.port else ""
+        name = (parts.path or "").lstrip("/") or "(no database)"
+        return f"{host}{port}/{name}"
+    except Exception:
+        return "(unparseable URL)"
+
+
 class _DB:
     """Thin adapter so one set of SQL statements runs on either engine."""
 
@@ -168,7 +191,15 @@ def _open(url: str | None, path: Path | str | None) -> _DB:
         import psycopg
         from psycopg.rows import dict_row
 
-        raw = psycopg.connect(url, autocommit=False, row_factory=dict_row)
+        try:
+            raw = psycopg.connect(url, autocommit=False, row_factory=dict_row)
+        except Exception as exc:
+            # Never surface the original text: psycopg echoes the connection
+            # string, password included, in some failure modes.
+            raise StorageError(
+                f"Could not reach the Postgres database at {safe_target(url)} "
+                f"({type(exc).__name__})."
+            ) from None
         db = _DB(raw, True)
         for statement in _TABLES.format(pk="SERIAL PRIMARY KEY").split(";"):
             if statement.strip():

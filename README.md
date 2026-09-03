@@ -117,6 +117,34 @@ tests/test_dojo.py     unit tests
 pip install pytest && python -m pytest tests/ -q
 ```
 
+## Branches and staging
+
+One repository, two branches:
+
+| Branch | Role |
+|---|---|
+| `main` | production — whatever the live app deploys from |
+| `claude/dojo-prototype-ui-features-f4xmhu` | staging — new work lands here first |
+
+Nothing goes straight to `main`. The loop is:
+
+1. Push the change to the staging branch.
+2. CI runs on that push: unit tests, a byte-compile of every module, and an
+   import check of the non-UI modules. Red means don't merge.
+3. Click through the staging app (see below) to eyeball anything CI can't
+   judge — layout, colour, animation.
+4. Open a PR into `main` and merge once it's green.
+
+`main` stays a known-good state you can always fall back to.
+
+### A staging URL
+
+Deploy a **second** Streamlit Community Cloud app from the staging branch, with
+its own subdomain (e.g. `dojo-staging`). Repository and branch are fixed at
+deploy time and can't be edited afterwards, so the two apps stay pinned to
+their own branches: production follows `main`, staging follows the staging
+branch. Each redeploys itself when its branch is pushed.
+
 ## Colour
 
 The tier ramp and the belt colours are checked, not eyeballed:

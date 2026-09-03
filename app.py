@@ -1,244 +1,199 @@
-import streamlit as st
-from datetime import date, timedelta
+"""Dojo — a quest log that keeps score.
+
+Run with:  streamlit run app.py
+"""
+
+from __future__ import annotations
+
 import json
+from datetime import date, timedelta
 
-st.cache_data.clear()
-st.cache_resource.clear()
+import streamlit as st
 
-# ────── CONFIG ──────
-if "theme" not in st.session_state:
-    st.session_state.theme = "dark"
+from dojo import ai, config, db, gamify
+from dojo.ui import board, stats as stats_view
+from dojo.ui.theme import inject
 
-theme = st.session_state.theme
-bg = "#0e1117" if theme == "dark" else "#ffffff"
-text_color = "#fafafa" if theme == "dark" else "#000000"
-accent = "#ff4b4b"
+st.set_page_config(
+    page_title="Dojo", page_icon="🥋", layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-PRIORITY_COLORS = {"Critical": "#ff3333", "High": "#ff8833", "Medium": "#ffdd33", "Low": "#33ff99"}
-PRIORITIES = ["Critical", "High", "Medium", "Low"]
+db.connect()
 
-st.set_page_config(page_title="Dojo", page_icon="Calendar", layout="wide")
 
-# ────── DATA INIT ──────
-for k in ["user_name", "tasks_by_date", "streak_dates"]:
-    if k not in st.session_state:
-        st.session_state[k] = {"user_name": "Warrior", "tasks_by_date": {}, "streak_dates": set()}[k]
+def api_key() -> str | None:
+    """Prefer Streamlit secrets, fall back to the environment."""
+    try:
+        secret = st.secrets.get("OPENAI_API_KEY")  # type: ignore[union-attr]
+    except Exception:
+        secret = None
+    return ai.api_key(secret)
 
-if st.session_state.user_name == "Warrior":
-    name = st.text_input("Your name?", placeholder="e.g., Alex")
-    if st.button("Enter Dojo") or name:
-        st.session_state.user_name = name.strip() or "Warrior"
-        st.balloons()
-        st.rerun()
 
+# ────── theme ──────
+# Follow whichever theme Streamlit is actually rendering (Settings → Appearance),
+# so the custom markup and the iframed components match its own widgets.
+mode = getattr(getattr(st.context, "theme", None), "type", None) or "dark"
+inject(mode)
+
+# ────── onboarding ──────
+user_name = db.get_setting("user_name")
+if not user_name:
+    _, middle, _ = st.columns([1, 2, 1])
+    with middle:
+        st.markdown("# 🥋 DOJO")
+        st.markdown("#### A quest log that keeps score.")
+        st.caption(
+            "Clear quests, earn XP, climb the belts. Everything is stored locally "
+            "in SQLite, so your run survives a refresh."
+        )
+        with st.form("welcome"):
+            name = st.text_input("What should we call you?", placeholder="Alex")
+            if st.form_submit_button("Enter the dojo", type="primary") and name.strip():
+                db.set_setting("user_name", name.strip())
+                st.rerun()
+    st.stop()
+
+# ────── carry-over (once per day, always into today) ──────
 today = date.today()
-selected_date = st.date_input("Day", value=today)
-date_str = selected_date.strftime("%Y-%m-%d")
-if date_str not in st.session_state.tasks_by_date:
-    st.session_state.tasks_by_date[date_str] = []
+if not st.session_state.get("carried"):
+    moved = db.carry_over(today)
+    st.session_state["carried"] = True
+    if moved:
+        st.toast(f"Carried {moved} unfinished quest{'s' if moved != 1 else ''} into today")
 
-# Carry-over incomplete
-for offset in range(1, 31):
-    past = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
-    if past in st.session_state.tasks_by_date:
-        for t in st.session_state.tasks_by_date[past]:
-            if not t.get("completed") and t["text"] not in [x["text"] for x in st.session_state.tasks_by_date.get(date_str, [])]:
-                st.session_state.tasks_by_date[date_str].append(t.copy())
+if "day" not in st.session_state:
+    st.session_state["day"] = today
+selected: date = st.session_state["day"]
+day_str = selected.isoformat()
 
-tasks = st.session_state.tasks_by_date[date_str]
-total = len(tasks)
-done = sum(1 for t in tasks if t.get("completed", False))
-score = int(done / total * 100) if total else 0
+lifetime = gamify.lifetime_stats()
+summary = db.day_summary(day_str)
+streak = lifetime["streak"]
 
-# Streak
-streak = 0
-d = today
-while True:
-    ds = d.strftime("%Y-%m-%d")
-    day_tasks = st.session_state.tasks_by_date.get(ds, [])
-    if any(t.get("completed", False) for t in day_tasks):
-        streak += 1
-    else:
-        break
-    d -= timedelta(days=1)
+# ────── reward feedback ──────
+# Queued by the board on the previous run and consumed once here, so the
+# animations play on a freshly rendered page rather than being cut off by the
+# rerun that recorded them.
+from dojo.ui import components as c  # noqa: E402
 
-# ────── CSS (clickable priority badge) ──────
-st.markdown(f"""
-<style>
-    .reportview-container {{ background: {bg}; color: {text_color} }}
-    .task-card {{ padding: 20px; margin: 16px 0; border-radius: 20px; background: rgba(255,75,75,0.1); 
-                  border-left: 8px solid {accent}; box-shadow: 0 8px 25px rgba(0,0,0,0.3); }}
-    .task-card.completed {{ opacity: 0.6; text-decoration: line-through; }}
-    .progress-container {{ width: 100%; height: 70px; background: rgba(255,255,255,0.1); border-radius: 35px; overflow: hidden; margin: 30px 0; }}
-    .progress-fill {{ height: 100%; width: {score}%; background: linear-gradient(90deg, #ff4b4b, #ff8c38, #00ff88); 
-                      border-radius: 35px; display: flex; align-items: center; justify-content: center; 
-                      font-size: 36px; font-weight: bold; color: white; }}
-    .prio-badge {{
-        display: inline-block; padding: 10px 26px; border-radius: 50px; font-weight: bold;
-        font-size: 14px; color: white; cursor: pointer; transition: all 0.2s ease;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.4); user-select: none;
-    }}
-    .prio-badge:hover {{ transform: scale(1.15); box-shadow: 0 8px 20px rgba(0,0,0,0.5); }}
-    .note-display {{ background: rgba(51,153,255,0.2); padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 5px solid #3399ff; }}
-</style>
-""", unsafe_allow_html=True)
+xp_gain = st.session_state.pop("xp_gain", None)
+xp_note = st.session_state.pop("xp_note", "")
+promotion = st.session_state.pop("belt_up", None)
 
-# ────── HEADER + BACKUP/RESTORE ──────
-col1, col2, col3 = st.columns([5, 1, 4])
-with col1:
-    st.markdown(f"<h1 style='color:{accent};'>Dojo — {st.session_state.user_name}'s Life OS</h1>", unsafe_allow_html=True)
-with col3:
-    backup = {
-        "user_name": st.session_state.user_name,
-        "tasks_by_date": st.session_state.tasks_by_date,
-        "streak_dates": list(st.session_state.streak_dates),
-        "theme": theme
-    }
-    st.download_button(
-        "Download Backup",
-        data=json.dumps(backup, indent=2),
-        file_name=f"dojo_backup_{today}.json",
-        mime="application/json"
+
+@st.dialog("RANK UP")
+def _rank_up_dialog(belt: str, level: int) -> None:
+    c.rank_up_banner(belt, level, config.belt_for_xp(lifetime["xp"])[2], mode)
+    st.caption(gamify.rank_message(lifetime))
+
+# ────── sidebar ──────
+with st.sidebar:
+    st.markdown(f"### 🥋 {user_name}")
+    st.caption(gamify.rank_message(lifetime))
+
+    st.metric("Rank", f"{lifetime['belt']} · LV {lifetime['level']}")
+    st.metric("Total XP", f"{lifetime['xp']:,}")
+    st.metric("Run", f"{streak} day{'s' if streak != 1 else ''}")
+    st.progress(lifetime["progress"], text=f"{lifetime['progress']:.0%} to next rank")
+
+    st.divider()
+    st.caption("**Rewards**")
+    st.caption(
+        " · ".join(f"{config.TIER_LABELS[p]} {config.BASE_XP[p]}" for p in config.PRIORITIES)
+        + f"  \n+{config.EARLY_BONUS} beating a due date  \n"
+        f"+{config.SWEEP_BONUS} clearing the log ({config.SWEEP_MIN_TASKS}+ quests)  \n"
+        "×1.25 at a 3-day run, ×1.5 at 7+"
     )
 
-# Restore
-uploaded = st.file_uploader("Upload backup to restore", type="json")
-if uploaded and st.button("Restore Backup"):
-    try:
-        data = json.load(uploaded)
-        st.session_state.user_name = data.get("user_name", "Warrior")
-        st.session_state.tasks_by_date = data.get("tasks_by_date", {})
-        st.session_state.streak_dates = set(data.get("streak_dates", []))
-        st.session_state.theme = data.get("theme", "dark")
-        st.success("Backup restored!")
-        st.rerun()
-    except:
-        st.error("Invalid backup file")
-
-# ────── ADD TASK ──────
-if "new_task" not in st.session_state:
-    st.session_state.new_task = ""
-
-new_task = st.text_input("What needs to be done?", value=st.session_state.new_task,
-                         placeholder="Type here...", key="newtask", label_visibility="collapsed")
-st.session_state.new_task = new_task
-
-if new_task.strip():
-    st.markdown("**Click priority to add instantly**")
-    cols = st.columns(4)
-    for i, p in enumerate(PRIORITIES):
-        with cols[i]:
-            if st.button(p, key=f"add_{p}", use_container_width=True):
-                tasks.append({"text": new_task.strip(), "completed": False, "notes": "", "priority": p})
-                st.session_state.new_task = ""
-                st.success(f"Added as {p}!")
-                st.rerun()
-else:
-    st.caption("Type → click priority → instant add")
-
-# Filter
-filter_opt = st.selectbox("Show:", ["All", "Open", "Completed"], key="filter")
-
-# Main Display
-st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
-st.markdown(f"<div class='progress-container'><div class='progress-fill'>{score}%</div></div>", unsafe_allow_html=True)
-
-display_tasks = [t for t in tasks
-                 if filter_opt == "All" or
-                 (filter_opt == "Open" and not t.get("completed")) or
-                 (filter_opt == "Completed" and t.get("completed"))]
-
-for i, task in enumerate(display_tasks):
-    idx = tasks.index(task)
-    priority = task.get("priority", "Low")
-    color = PRIORITY_COLORS[priority]
-    edit_key = f"prioedit_{date_str}_{idx}"
-
-    st.markdown(f"<div class='task-card{' completed' if task.get('completed') else ''}>", unsafe_allow_html=True)
-
-    # CLICKABLE PRIORITY BADGE — the colored badge itself is clickable
-    if st.session_state.get(edit_key):
-        st.markdown("**Change priority:**")
-        cols = st.columns(4)
-        for j, np in enumerate(PRIORITIES):
-            with cols[j]:
-                if st.button(np, key=f"set_{idx}_{np}", use_container_width=True):
-                    tasks[idx]["priority"] = np
-                    st.session_state[edit_key] = False
-                    st.rerun()
-        if st.button("Cancel", key=f"cancelprio_{idx}"):
-            st.session_state[edit_key] = False
-            st.rerun()
-    else:
-        st.markdown(f"""
-        <div class="prio-badge" style="background:{color}"
-             onclick="document.getElementById('trig_{idx}').click()">
-            {priority}
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("", key=f"trig_{idx}"):
-            st.session_state[edit_key] = True
-            st.rerun()
-
-    st.markdown(f"### {task['text']}")
-
-    # Action buttons
-    cols = st.columns([2,2,2,2,2])
-    with cols[0]:
-        if task.get("completed"):
-            st.success("DONE")
+    st.divider()
+    st.caption("**Backup**")
+    st.download_button(
+        "Download backup",
+        data=json.dumps(db.export_state(), indent=2),
+        file_name=f"dojo_backup_{today}.json",
+        mime="application/json",
+        width="stretch",
+    )
+    uploaded = st.file_uploader("Restore from backup", type="json",
+                                label_visibility="collapsed")
+    if uploaded is not None and st.button("Restore", width="stretch"):
+        try:
+            count = db.import_state(json.load(uploaded))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            st.error("That file isn't valid JSON.")
+        except (KeyError, TypeError, ValueError) as exc:
+            st.error(f"Couldn't read that backup: {exc}")
         else:
-            if st.button("Complete", key=f"done_{idx}"):
-                tasks[idx]["completed"] = True
-                st.rerun()
-    with cols[1]:
-        if st.button("Notes", key=f"notes_{idx}"):
-            st.session_state[f"note_{idx}"] = True
-    with cols[2]:
-        if st.button("Edit", key=f"edit_{idx}"):
-            st.session_state[f"text_{idx}"] = True
-    with cols[3]:
-        if st.button("Delete", key=f"del_{idx}"):
-            tasks.pop(idx)
+            st.success(f"Restored {count} quests.")
+            st.session_state.pop("carried", None)
             st.rerun()
 
-    # Notes — FULLY WORKING
-    if st.session_state.get(f"note_{idx}"):
-        note_text = st.text_area("Note", value=task.get("notes", ""), key=f"notein_{idx}", height=120)
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Save Note", key=f"savenote_{idx}"):
-                tasks[idx]["notes"] = note_text.strip()
-                st.session_state[f"note_{idx}"] = False
-                st.rerun()
-        with c2:
-            if st.button("Cancel", key=f"cancelnote_{idx}"):
-                st.session_state[f"note_{idx}"] = False
-                st.rerun()
+    st.divider()
+    st.caption(f"AI assist: **{'on' if ai.available(api_key()) else 'off'}**")
+    if not ai.available(api_key()):
+        st.caption("Set `OPENAI_API_KEY` to enable planning and smart capture.")
+    st.caption(f"Theme: **{mode}** — follows your system; override under ⋮ → Settings.")
+    st.caption(f"v{config.APP_VERSION} · data at `{config.DB_PATH}`")
 
-    if task.get("notes"):
-        st.markdown(f"<div class='note-display'>{task['notes']}</div>", unsafe_allow_html=True)
+# ────── header ──────
+board_tab, stats_tab = st.tabs(["Quest Log", "Record"])
 
-    # Edit task text
-    if st.session_state.get(f"text_{idx}"):
-        new_text = st.text_input("Edit task", value=task["text"], key=f"textin_{idx}")
-        c1, c2 = st.columns(2)
-        with c1:
-            if c1.button("Save", key=f"savetext_{idx}"):
-                tasks[idx]["text"] = new_text.strip()
-                st.session_state[f"text_{idx}"] = False
-                st.rerun()
-        with c2:
-            if c2.button("Cancel", key=f"canceltext_{idx}"):
-                st.session_state[f"text_{idx}"] = False
-                st.rerun()
+with board_tab:
+    c.hero(lifetime, user_name, summary, mode, gain=xp_gain, gain_note=xp_note)
+    if promotion:
+        _rank_up_dialog(*promotion)
+    st.write("")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    nav = st.columns([1, 1, 1.6, 5])
+    with nav[0]:
+        if st.button("←", width="stretch", help="Previous day"):
+            st.session_state["day"] = selected - timedelta(days=1)
+            st.rerun()
+    with nav[1]:
+        if st.button("→", width="stretch", help="Next day"):
+            st.session_state["day"] = selected + timedelta(days=1)
+            st.rerun()
+    with nav[2]:
+        if st.button("Today", width="stretch"):
+            st.session_state["day"] = today
+            st.rerun()
+    with nav[3]:
+        picked = st.date_input("Day", value=selected, format="YYYY-MM-DD",
+                               label_visibility="collapsed")
+        if picked != selected:
+            st.session_state["day"] = picked
+            st.rerun()
 
-# Sidebar
-with st.sidebar:
-    st.metric("Streak", f"{streak} days")
-    st.metric("Flow", f"{score}%")
-    st.write(f"**Total:** {total} | **Done:** {done}")
+    heading = "Today" if selected == today else selected.strftime("%A")
+    st.markdown(f"### {heading} · {selected.strftime('%B %-d, %Y')}")
 
-st.caption("v10.2 — EVERYTHING BACK & PERFECT • Backup • Notes • Clickable priority badge • You are a legend")
+    if selected != today:
+        st.caption("Viewing another day — new quests are added to this date.")
+
+    board.quick_add(day_str, api_key())
+    st.write("")
+
+    all_tasks = db.list_tasks(day_str)
+    if not all_tasks:
+        st.info("No quests logged for this day. Accept your first one above.")
+    else:
+        visible = board.filter_bar(all_tasks)
+        st.write("")
+
+        left, right = st.columns([2.4, 1])
+        with left:
+            if not visible:
+                st.caption("No quests match these filters.")
+            for task in sorted(visible, key=lambda t: (t["completed"], t["sort_order"])):
+                board.task_card(task, streak, api_key(), today)
+        with right:
+            board.coach_panel(
+                [t for t in all_tasks if not t["completed"]],
+                {"streak": streak, **summary},
+                api_key(),
+            )
+
+with stats_tab:
+    stats_view.render(mode, today)

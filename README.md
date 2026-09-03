@@ -190,10 +190,14 @@ Nothing goes straight to `main`. The loop is:
 ### A staging URL
 
 Deploy a **second** Streamlit Community Cloud app from the staging branch, with
-its own subdomain (e.g. `dojo-staging`). Repository and branch are fixed at
-deploy time and can't be edited afterwards, so the two apps stay pinned to
-their own branches: production follows `main`, staging follows the staging
-branch. Each redeploys itself when its branch is pushed.
+its own subdomain — `dojo-preview`, `dojo-next`, `dojo-beta`. Community Cloud
+reserves some words in subdomains and rejects `staging`, so name it something
+else; the subdomain is cosmetic and nothing depends on it.
+
+Repository and branch are fixed at deploy time and can't be edited afterwards,
+so the two apps stay pinned to their own branches: production follows `main`,
+the preview app follows the staging branch. Each redeploys itself when its
+branch is pushed.
 
 ## Colour
 

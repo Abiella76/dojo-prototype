@@ -153,7 +153,8 @@ with st.sidebar:
     st.caption("**Rewards**")
     st.caption(
         " · ".join(f"{config.TIER_LABELS[p]} {config.BASE_XP[p]}" for p in config.PRIORITIES)
-        + f"  \n+{config.EARLY_BONUS} beating a due date  \n"
+        + f"  \n+{config.CREATE_XP} accepting a quest  \n"
+        f"+{config.EARLY_BONUS} beating a due date  \n"
         f"+{config.SWEEP_BONUS} clearing the log ({config.SWEEP_MIN_TASKS}+ quests)  \n"
         "×1.25 at a 3-day run, ×1.5 at 7+"
     )
@@ -218,7 +219,8 @@ with board_tab:
     _instant = getattr(c, "instant_reward", None)
     if _instant is not None:
         with st.container(key="sfx-instant"):
-            _instant(base64.b64encode(sfx.clear_sound()).decode() if sound_on else "")
+            _instant(base64.b64encode(sfx.clear_sound()).decode() if sound_on else "",
+                     config.CREATE_XP)
 
     c.hero(lifetime, user_name, summary, mode)
     if promotion:

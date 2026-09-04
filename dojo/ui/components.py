@@ -530,9 +530,38 @@ _INSTANT_JS = r"""
     } catch (e) {}
   }
 
+  function reward(amount, note) {
+    W.__dojoBurstAt = Date.now();
+    if (!reduced()) burst(amount, note);
+    play();
+  }
+
+  // The capture box, identified by its submit button's key rather than by
+  // position — the page holds several forms and only this one accepts quests.
+  var ACCEPT = '[class*="st-key-FormSubmitter-quick_add-"]';
+
+  function captureForm(el) {
+    var f = el.closest && el.closest('[data-testid="stForm"]');
+    return (f && f.querySelector(ACCEPT)) ? f : null;
+  }
+
+  function creationReward(form) {
+    var input = form.querySelector('input[type="text"], input:not([type])');
+    if (!input || !input.value.trim()) return;   // an empty box creates nothing
+    var xp = W.__dojoCreateXp || 0;
+    if (xp) reward(xp, 'ACCEPTED');
+  }
+
   D.addEventListener('pointerdown', function (ev) {
     var t = ev.target;
     if (!t || !t.closest) return;
+
+    if (t.closest(ACCEPT + ' button')) {
+      var form = captureForm(t);
+      if (form) creationReward(form);
+      return;
+    }
+
     if (!t.closest('[class*="st-key-done_"] button')) return;
     var card = t.closest('[class*="st-key-card-task-"]');
     if (!card) return;
@@ -541,9 +570,18 @@ _INSTANT_JS = r"""
     if (!m) return;
     var chip = card.querySelector('.chip-tier');
     var note = chip ? chip.textContent.replace(/^[SABC]/, '').trim() : '';
-    W.__dojoBurstAt = Date.now();
-    if (!reduced()) burst(m[1], note);
-    play();
+    reward(m[1], note);
+  }, true);
+
+  // Enter submits the capture box without ever producing a pointerdown.
+  D.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter') return;
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var form = captureForm(t);
+    if (!form) return;
+    if (t.tagName !== 'INPUT' && !t.closest(ACCEPT)) return;
+    creationReward(form);
   }, true);
 
   // The server renders its own burst a second or two later. Drop that one when
@@ -569,7 +607,7 @@ _INSTANT_JS = r"""
 """
 
 
-def instant_reward(sound_b64: str = "") -> None:
+def instant_reward(sound_b64: str = "", create_xp: int = 0) -> None:
     """Fire the points burst the instant Clear is pressed, with no server wait.
 
     Every card already shows what clearing it is worth, and that figure is pure
@@ -590,6 +628,7 @@ def instant_reward(sound_b64: str = "") -> None:
   // Reassigned on every rerun so the sound toggle takes effect at once, even
   // though the code below is only ever installed once.
   W.__dojoSnd = %SND%;
+  W.__dojoCreateXp = %CREATE%;
   if (D.getElementById('dojo-instant')) return;
   var s = D.createElement('script');
   s.id = 'dojo-instant';
@@ -599,6 +638,7 @@ def instant_reward(sound_b64: str = "") -> None:
 """
     payload = (bootstrap
                .replace("%SND%", json.dumps(sound_b64))
+               .replace("%CREATE%", json.dumps(int(create_xp)))
                .replace("%CODE%", json.dumps(_INSTANT_JS)))
     st.iframe(
         "<!doctype html><html><body><script>" + payload + "</script></body></html>",

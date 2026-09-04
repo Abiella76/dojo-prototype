@@ -30,27 +30,33 @@ def xp_preview(priority: str, streak: int, *, due_date: str | None = None,
 
 def lifetime_stats() -> dict[str, Any]:
     conn = db.connect()
-    row = conn.execute(
-        "SELECT COUNT(*) AS created, COALESCE(SUM(completed), 0) AS done "
-        "FROM tasks WHERE parent_id IS NULL"
+    # One pass per table rather than a query per counter. This runs on every
+    # rerun, and against a hosted database each round trip is a network hop —
+    # seven of them are plainly felt between clicking Clear and seeing the XP.
+    t = conn.execute(
+        "SELECT "
+        "COALESCE(SUM(CASE WHEN parent_id IS NULL THEN 1 ELSE 0 END), 0) AS created, "
+        "COALESCE(SUM(CASE WHEN parent_id IS NULL AND completed = 1 THEN 1 ELSE 0 END), 0) AS done, "
+        "COALESCE(SUM(CASE WHEN completed = 1 AND priority = 'Critical' THEN 1 ELSE 0 END), 0) AS crit "
+        "FROM tasks"
     ).fetchone()
-    crit = conn.execute(
-        "SELECT COUNT(*) AS n FROM tasks WHERE completed = 1 AND priority = 'Critical'"
-    ).fetchone()["n"]
-    sweeps = conn.execute(
-        "SELECT COUNT(*) AS n FROM xp_log WHERE reason = 'Clean sweep'"
-    ).fetchone()["n"]
-    early = conn.execute(
-        "SELECT COUNT(*) AS n FROM xp_log WHERE reason = 'Ahead of due date'"
-    ).fetchone()["n"]
-    total = db.total_xp()
+    x = conn.execute(
+        "SELECT "
+        "COALESCE(SUM(points), 0) AS total, "
+        "COALESCE(SUM(CASE WHEN reason = 'Clean sweep' THEN 1 ELSE 0 END), 0) AS sweeps, "
+        "COALESCE(SUM(CASE WHEN reason = 'Ahead of due date' THEN 1 ELSE 0 END), 0) AS early "
+        "FROM xp_log"
+    ).fetchone()
+    # current_streak() derives from active_days(); share the one lookup.
+    days = db.active_days()
+    total = int(x["total"])
     name, level, colour, nxt = config.belt_for_xp(total)
     return {
         "xp": total, "belt": name, "level": level, "belt_color": colour,
         "next_belt_at": nxt, "progress": config.belt_progress(total),
-        "created": int(row["created"]), "done": int(row["done"]),
-        "critical_done": int(crit), "sweeps": int(sweeps), "early": int(early),
-        "streak": db.current_streak(), "active_days": len(db.active_days()),
+        "created": int(t["created"]), "done": int(t["done"]),
+        "critical_done": int(t["crit"]), "sweeps": int(x["sweeps"]), "early": int(x["early"]),
+        "streak": db.current_streak(days=days), "active_days": len(days),
     }
 
 

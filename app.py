@@ -5,6 +5,7 @@ Run with:  streamlit run app.py
 
 from __future__ import annotations
 
+import base64
 import json
 from datetime import date, timedelta
 
@@ -57,6 +58,46 @@ def api_key() -> str | None:
 mode = getattr(getattr(st.context, "theme", None), "type", None) or "dark"
 inject(mode)
 
+def _play(data: bytes, key: str) -> None:
+    """Fire a one-shot sound. The player itself is hidden by CSS.
+
+    Autoplay is allowed here because clearing a quest is a click, and browsers
+    permit autoplay once the page has been interacted with. On a browser that
+    still blocks it the audio simply doesn't play — nothing breaks.
+    """
+    with st.container(key=f"sfx-{key}"):
+        st.audio(data, format="audio/wav", autoplay=True)
+
+
+# ────── reward feedback ──────
+# Queued by the board on the previous run and consumed here, so the animation
+# plays on a freshly rendered page rather than being cut off by the rerun that
+# recorded it.
+#
+# This runs first on purpose. Streamlit streams each element to the browser as
+# the script produces it, so anything drawn ahead of the burst is latency the
+# user sits through before seeing their points. The burst needs nothing from
+# the database, so it goes out while the rest of the page is still being read.
+from dojo.ui import components as c  # noqa: E402
+
+xp_gain = st.session_state.pop("xp_gain", None)
+xp_note = st.session_state.pop("xp_note", "")
+promotion = st.session_state.pop("belt_up", None)
+
+if xp_gain is not None:
+    c.reward_burst(xp_gain, xp_note)
+    # Native toast as well as the animated burst. The burst is custom CSS and
+    # is deliberately suppressed for reduced-motion users; the toast depends on
+    # nothing but Streamlit, so the reward is never silent.
+    st.toast(f"**+{xp_gain} XP**" + (f" · {xp_note}" if xp_note else ""),
+             icon="\u2694\ufe0f")
+
+sound_on = db.get_setting("sound", "on") == "on"
+if sound_on and (promotion or xp_gain is not None):
+    # Rank-up trumps the per-quest chime when both land on the same click.
+    _play(sfx.rank_up_sound() if promotion else sfx.clear_sound(),
+          "rank" if promotion else "clear")
+
 # ────── onboarding ──────
 user_name = db.get_setting("user_name")
 if not user_name:
@@ -91,28 +132,6 @@ day_str = selected.isoformat()
 lifetime = gamify.lifetime_stats()
 summary = db.day_summary(day_str)
 streak = lifetime["streak"]
-
-# ────── reward feedback ──────
-# Queued by the board on the previous run and consumed once here, so the
-# animations play on a freshly rendered page rather than being cut off by the
-# rerun that recorded them.
-from dojo.ui import components as c  # noqa: E402
-
-xp_gain = st.session_state.pop("xp_gain", None)
-xp_note = st.session_state.pop("xp_note", "")
-promotion = st.session_state.pop("belt_up", None)
-sound_on = db.get_setting("sound", "on") == "on"
-
-
-def _play(data: bytes, key: str) -> None:
-    """Fire a one-shot sound. The player itself is hidden by CSS.
-
-    Autoplay is allowed here because clearing a quest is a click, and browsers
-    permit autoplay once the page has been interacted with. On a browser that
-    still blocks it the audio simply doesn't play — nothing breaks.
-    """
-    with st.container(key=f"sfx-{key}"):
-        st.audio(data, format="audio/wav", autoplay=True)
 
 
 @st.dialog("RANK UP")
@@ -189,20 +208,14 @@ with st.sidebar:
 board_tab, stats_tab = st.tabs(["Quest Log", "Record"])
 
 with board_tab:
+    # Installs the click-time burst. Cheap, and it is what makes clearing a
+    # quest feel immediate rather than arriving after the rerun.
+    with st.container(key="sfx-instant"):
+        c.instant_reward(base64.b64encode(sfx.clear_sound()).decode() if sound_on else "")
+
     c.hero(lifetime, user_name, summary, mode)
-    if xp_gain is not None:
-        c.reward_burst(xp_gain, xp_note)
-        # Native toast as well as the animated burst. The burst is custom CSS
-        # and is deliberately suppressed for reduced-motion users; the toast
-        # depends on nothing but Streamlit, so the reward is never silent.
-        st.toast(f"**+{xp_gain} XP**" + (f" · {xp_note}" if xp_note else ""),
-                 icon="\u2694\ufe0f")
     if promotion:
         _rank_up_dialog(*promotion)
-    # Rank-up trumps the per-quest chime when both land on the same click.
-    if sound_on and (promotion or xp_gain is not None):
-        _play(sfx.rank_up_sound() if promotion else sfx.clear_sound(),
-              "rank" if promotion else "clear")
     st.write("")
 
     nav = st.columns([1, 1, 1.6, 5])

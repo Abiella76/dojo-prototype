@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Dojo"
-APP_VERSION = "11.1"
+APP_VERSION = "11.2"
 
 # ────── storage ──────
 # Overridable so tests and deployments can point somewhere writable.

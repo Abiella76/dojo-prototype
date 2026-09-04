@@ -192,6 +192,11 @@ with board_tab:
     c.hero(lifetime, user_name, summary, mode)
     if xp_gain is not None:
         c.reward_burst(xp_gain, xp_note)
+        # Native toast as well as the animated burst. The burst is custom CSS
+        # and is deliberately suppressed for reduced-motion users; the toast
+        # depends on nothing but Streamlit, so the reward is never silent.
+        st.toast(f"**+{xp_gain} XP**" + (f" · {xp_note}" if xp_note else ""),
+                 icon="\u2694\ufe0f")
     if promotion:
         _rank_up_dialog(*promotion)
     # Rank-up trumps the per-quest chime when both land on the same click.

@@ -17,11 +17,51 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Data lives in `~/.dojo/dojo.db`. Point `DOJO_DB` somewhere else if you'd rather:
+With no database configured it stores everything in a local SQLite file at
+`~/.dojo/dojo.db`. Point `DOJO_DB` elsewhere if you'd rather:
 
 ```bash
 DOJO_DB=./dojo.db streamlit run app.py
 ```
+
+## Storage
+
+Two backends, same schema and same queries:
+
+| Backend | When | Survives |
+|---|---|---|
+| SQLite | default, no config | a refresh and a restart, as long as the file is on a disk you keep |
+| Postgres | a connection URL is set | everything — the data lives outside the app |
+
+**On Streamlit Community Cloud you want Postgres.** Its filesystem is
+ephemeral: the container is wiped whenever the app sleeps or redeploys, taking
+a SQLite file with it. A managed Postgres such as [Neon](https://neon.tech)
+has a free tier and is enough for this.
+
+Add the connection string to the app's **Settings → Secrets**:
+
+```toml
+DATABASE_URL = "postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require"
+```
+
+Locally, an environment variable does the same job:
+
+```bash
+export DATABASE_URL="postgresql://..."
+streamlit run app.py
+```
+
+Any of these are picked up, so it drops into a project that already has a
+database wired up without moving secrets around:
+
+- `DATABASE_URL` or `NEON_DATABASE_URL` — environment or top-level secret
+- `[connections.postgresql] url` — what `st.connection("postgresql")` uses
+- `[postgres] url` / `[neon] url`
+
+The schema is created on first connect; there is no migration step. The sidebar
+states which backend is live, so you can tell at a glance. To move existing
+data across, use **Download backup** on the old store and **Restore** on the
+new one — the format is backend-independent.
 
 ## What it does
 
@@ -100,7 +140,7 @@ the older `session_state` version of this app import too.
 ```
 app.py                 entry point, sidebar, routing
 dojo/config.py         tiers, XP rules, belts, validated palettes
-dojo/db.py             SQLite storage, XP ledger, carry-over, import/export
+dojo/db.py             storage (SQLite or Postgres), XP ledger, carry-over, backup
 dojo/gamify.py         XP preview, belt progress, achievements
 dojo/nlp.py            local natural-language task parser
 dojo/ai.py             optional LLM assist, degrades gracefully
@@ -116,6 +156,48 @@ tests/test_dojo.py     unit tests
 ```bash
 pip install pytest && python -m pytest tests/ -q
 ```
+
+Every test runs twice, once per backend. The Postgres pass skips unless
+`DOJO_TEST_PG_URL` points at a throwaway database:
+
+```bash
+DOJO_TEST_PG_URL=postgresql://postgres@localhost/dojo_test python -m pytest tests/ -q
+```
+
+CI supplies one from a service container, so both backends are exercised on
+every push — the two can't drift apart unnoticed.
+
+## Branches and staging
+
+One repository, two branches:
+
+| Branch | Role |
+|---|---|
+| `main` | production — whatever the live app deploys from |
+| `claude/dojo-prototype-ui-features-f4xmhu` | staging — new work lands here first |
+
+Nothing goes straight to `main`. The loop is:
+
+1. Push the change to the staging branch.
+2. CI runs on that push: unit tests, a byte-compile of every module, and an
+   import check of the non-UI modules. Red means don't merge.
+3. Click through the staging app (see below) to eyeball anything CI can't
+   judge — layout, colour, animation.
+4. Open a PR into `main` and merge once it's green.
+
+`main` stays a known-good state you can always fall back to.
+
+### A staging URL
+
+Deploy a **second** Streamlit Community Cloud app from the staging branch, with
+its own subdomain — `dojo-preview`, `dojo-next`, `dojo-beta`. Community Cloud
+reserves some words in subdomains and rejects `staging`, so name it something
+else; the subdomain is cosmetic and nothing depends on it.
+
+Repository and branch are fixed at deploy time and can't be edited afterwards,
+so the two apps stay pinned to their own branches: production follows `main`,
+the preview app follows the staging branch. Each redeploys itself when its
+branch is pushed.
 
 ## Colour
 

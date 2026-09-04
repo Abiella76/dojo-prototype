@@ -1,13 +1,20 @@
-"""SQLite persistence for Dojo.
+"""Persistence for Dojo — SQLite by default, Postgres when one is configured.
 
 Everything the app knows lives here, so state survives a browser refresh, a
-restart, or a redeploy. The module deliberately has no Streamlit import: it is
-plain Python and is unit-testable on its own.
+restart, or a redeploy. The module deliberately has no hard Streamlit import:
+it is plain Python and is unit-testable on its own.
+
+Backend selection is by connection URL (see `resolve_url`). With no URL it
+falls back to a local SQLite file, which is right for laptops and for tests.
+Point DATABASE_URL at Neon (or any Postgres) and the same schema and the same
+queries run there instead — necessary on Streamlit Community Cloud, whose disk
+is wiped whenever the app sleeps or redeploys.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import date, datetime, timedelta
@@ -18,9 +25,13 @@ from . import config
 
 _local = threading.local()
 
-SCHEMA = """
+_PG_PREFIXES = ("postgres://", "postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")
+
+# Shared table definitions. Only the id column differs between the two engines,
+# so it is substituted rather than duplicating the whole schema.
+_TABLES = """
 CREATE TABLE IF NOT EXISTS tasks (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           {pk},
     parent_id    INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
     day          TEXT    NOT NULL,
     text         TEXT    NOT NULL,
@@ -38,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_day    ON tasks(day);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 
 CREATE TABLE IF NOT EXISTS xp_log (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         {pk},
     day        TEXT    NOT NULL,
     task_id    INTEGER,
     points     INTEGER NOT NULL,
@@ -53,32 +64,194 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
+SCHEMA = _TABLES.format(pk="INTEGER PRIMARY KEY AUTOINCREMENT")  # sqlite, kept for reference
 
-def connect(path: Path | str | None = None) -> sqlite3.Connection:
-    """Thread-local connection. Streamlit reruns can land on any worker thread."""
+
+def resolve_url(explicit: str | None = None) -> str | None:
+    """Find a Postgres URL, or None to use SQLite.
+
+    Accepts every convention in common use so it drops into an existing
+    Streamlit project without rewiring secrets:
+      * DATABASE_URL / NEON_DATABASE_URL in the environment
+      * DATABASE_URL at the top level of st.secrets
+      * [connections.postgresql] url  — what st.connection("postgresql") uses
+      * [postgres] url
+    """
+    if explicit:
+        return explicit
+    for var in ("DATABASE_URL", "NEON_DATABASE_URL"):
+        if os.environ.get(var, "").strip():
+            return os.environ[var].strip()
+    try:  # Streamlit is optional — tests and scripts run without it.
+        import streamlit as st
+
+        secrets = st.secrets
+        for key in ("DATABASE_URL", "NEON_DATABASE_URL"):
+            if key in secrets and str(secrets[key]).strip():
+                return str(secrets[key]).strip()
+        for section in ("connections", "postgres", "neon"):
+            if section not in secrets:
+                continue
+            block = secrets[section]
+            block = block.get("postgresql", block) if section == "connections" else block
+            for key in ("url", "URL", "dsn", "DATABASE_URL"):
+                if key in block and str(block[key]).strip():
+                    return str(block[key]).strip()
+    except Exception:
+        pass
+    return None
+
+
+def _is_pg(url: str | None) -> bool:
+    return bool(url) and url.startswith(_PG_PREFIXES)
+
+
+class StorageError(RuntimeError):
+    """A configured database could not be reached. Carries no credentials."""
+
+
+def safe_target(url: str | None) -> str:
+    """Describe a URL as host/database, with any credentials stripped.
+
+    Safe to print in the UI or logs — a connection string carries a password.
+    """
+    if not url:
+        return "(none)"
+    try:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(url)
+        host = parts.hostname or "(no host)"
+        port = f":{parts.port}" if parts.port else ""
+        name = (parts.path or "").lstrip("/") or "(no database)"
+        return f"{host}{port}/{name}"
+    except Exception:
+        return "(unparseable URL)"
+
+
+class _DB:
+    """Thin adapter so one set of SQL statements runs on either engine."""
+
+    def __init__(self, raw: Any, is_pg: bool) -> None:
+        self.raw = raw
+        self.is_pg = is_pg
+
+    def _translate(self, sql: str) -> str:
+        if not self.is_pg:
+            return sql
+        # SQLite's `IS ?` doubles as a null-safe equality test; Postgres spells
+        # that IS NOT DISTINCT FROM. Do this before the placeholder swap.
+        sql = sql.replace("IS ?", "IS NOT DISTINCT FROM ?")
+        return sql.replace("?", "%s")
+
+    def execute(self, sql: str, params: Any = ()) -> Any:
+        return self.raw.execute(self._translate(sql), tuple(params))
+
+    def insert(self, sql: str, params: Any = ()) -> int:
+        """Run an INSERT and return the new row id, on either engine."""
+        if self.is_pg:
+            cur = self.raw.execute(self._translate(sql) + " RETURNING id", tuple(params))
+            return int(cur.fetchone()["id"])
+        return int(self.raw.execute(sql, tuple(params)).lastrowid)
+
+    def commit(self) -> None:
+        self.raw.commit()
+
+    def close(self) -> None:
+        try:
+            self.raw.close()
+        except Exception:
+            pass
+
+    def alive(self) -> bool:
+        try:
+            self.raw.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+
+    def resync_sequences(self) -> None:
+        """After inserting explicit ids, move the identity sequences past them.
+
+        Only Postgres needs this: SQLite's AUTOINCREMENT already tracks the max.
+        Without it the next insert would collide with a restored row.
+        """
+        if not self.is_pg:
+            return
+        for table in ("tasks", "xp_log"):
+            self.raw.execute(
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {table}), 1))"
+            )
+        self.commit()
+
+
+def _open(url: str | None, path: Path | str | None) -> _DB:
+    if _is_pg(url):
+        import psycopg
+        from psycopg.rows import dict_row
+
+        try:
+            raw = psycopg.connect(url, autocommit=False, row_factory=dict_row)
+        except Exception as exc:
+            # Never surface the original text: psycopg echoes the connection
+            # string, password included, in some failure modes.
+            raise StorageError(
+                f"Could not reach the Postgres database at {safe_target(url)} "
+                f"({type(exc).__name__})."
+            ) from None
+        db = _DB(raw, True)
+        for statement in _TABLES.format(pk="SERIAL PRIMARY KEY").split(";"):
+            if statement.strip():
+                raw.execute(statement)
+        db.commit()
+        return db
+
     target = Path(path or config.DB_PATH)
-    existing = getattr(_local, "conn", None)
-    if existing is not None and getattr(_local, "path", None) == str(target):
-        return existing
-    if existing is not None:
-        existing.close()
     target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    conn.commit()
-    _local.conn, _local.path = conn, str(target)
-    return conn
+    raw = sqlite3.connect(target, check_same_thread=False)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA foreign_keys = ON")
+    raw.executescript(_TABLES.format(pk="INTEGER PRIMARY KEY AUTOINCREMENT"))
+    raw.commit()
+    return _DB(raw, False)
+
+
+def connect(path: Path | str | None = None, url: str | None = None) -> _DB:
+    """Thread-local connection. Streamlit reruns can land on any worker thread.
+
+    A managed Postgres such as Neon drops idle connections, so a cached handle
+    is pinged and transparently reopened rather than surfacing as an error the
+    first time the app is used after a quiet spell.
+    """
+    resolved = resolve_url(url)
+    key = resolved or str(Path(path or config.DB_PATH))
+
+    existing = getattr(_local, "conn", None)
+    if existing is not None and getattr(_local, "key", None) == key:
+        if existing.alive():
+            return existing
+        existing.close()  # stale — fall through and reopen
+    elif existing is not None:
+        existing.close()
+
+    db = _open(resolved, path)
+    _local.conn, _local.key = db, key
+    return db
+
+
+def backend() -> str:
+    """'postgres' or 'sqlite' — for the sidebar readout."""
+    return "postgres" if connect().is_pg else "sqlite"
 
 
 def reset_connection() -> None:
-    """Drop the cached handle — used by tests switching database files."""
+    """Drop the cached handle — used by tests switching databases."""
     conn = getattr(_local, "conn", None)
     if conn is not None:
         conn.close()
     _local.conn = None
-    _local.path = None
+    _local.key = None
 
 
 # ────── settings ──────
@@ -131,7 +304,7 @@ def add_task(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE day = ? AND parent_id IS ?",
         (day, parent_id),
     ).fetchone()["n"]
-    cur = conn.execute(
+    task_id = conn.insert(
         "INSERT INTO tasks(parent_id, day, text, notes, priority, due_date, tags, "
         "sort_order, created_at, carried_from) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (
@@ -142,7 +315,7 @@ def add_task(
     )
     conn.commit()
     _sync_sweep_bonus(day)
-    return int(cur.lastrowid)
+    return task_id
 
 
 def get_task(task_id: int) -> dict[str, Any] | None:
@@ -250,7 +423,8 @@ def _sync_sweep_bonus(day: str) -> None:
         "FROM tasks WHERE day = ? AND parent_id IS NULL",
         (day,),
     ).fetchone()
-    earned = row["total"] >= config.SWEEP_MIN_TASKS and row["total"] == row["done"]
+    total, done = int(row["total"]), int(row["done"])
+    earned = total >= config.SWEEP_MIN_TASKS and total == done
     held = conn.execute(
         "SELECT id FROM xp_log WHERE day = ? AND reason = 'Clean sweep'", (day,)
     ).fetchone()
@@ -278,7 +452,7 @@ def xp_by_day(since: str) -> list[dict[str, Any]]:
         "SELECT day, SUM(points) AS xp FROM xp_log WHERE day >= ? GROUP BY day ORDER BY day",
         (since,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [{"day": r["day"], "xp": int(r["xp"] or 0)} for r in rows]
 
 
 # ────── streaks & carry-over ──────
@@ -368,7 +542,7 @@ def completions_by_day(since: str) -> list[dict[str, Any]]:
         "FROM tasks WHERE day >= ? AND parent_id IS NULL GROUP BY day ORDER BY day",
         (since,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [{"day": r["day"], "total": int(r["total"]), "done": int(r["done"])} for r in rows]
 
 
 def priority_breakdown(since: str) -> list[dict[str, Any]]:
@@ -377,7 +551,8 @@ def priority_breakdown(since: str) -> list[dict[str, Any]]:
         "FROM tasks WHERE day >= ? AND parent_id IS NULL GROUP BY priority",
         (since,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [{"priority": r["priority"], "total": int(r["total"]), "done": int(r["done"])}
+            for r in rows]
 
 
 def all_tags() -> list[str]:
@@ -398,9 +573,10 @@ def export_state() -> dict[str, Any]:
     return {
         "version": 2,
         "exported_at": datetime.now().isoformat(timespec="seconds"),
-        "settings": {r["key"]: r["value"] for r in conn.execute("SELECT * FROM settings")},
-        "tasks": [dict(r) for r in conn.execute("SELECT * FROM tasks ORDER BY id")],
-        "xp_log": [dict(r) for r in conn.execute("SELECT * FROM xp_log ORDER BY id")],
+        "settings": {r["key"]: r["value"]
+                     for r in conn.execute("SELECT * FROM settings").fetchall()},
+        "tasks": [dict(r) for r in conn.execute("SELECT * FROM tasks ORDER BY id").fetchall()],
+        "xp_log": [dict(r) for r in conn.execute("SELECT * FROM xp_log ORDER BY id").fetchall()],
     }
 
 
@@ -413,23 +589,29 @@ def import_state(payload: dict[str, Any]) -> int:
     conn.commit()
 
     if payload.get("version") == 2:
-        for task in payload.get("tasks", []):
+        task_cols = ("id", "parent_id", "day", "text", "notes", "priority", "completed",
+                     "completed_at", "due_date", "tags", "sort_order", "created_at",
+                     "carried_from")
+        xp_cols = ("id", "day", "task_id", "points", "reason", "created_at")
+        # Parents must land before the children that reference them.
+        tasks = sorted(payload.get("tasks", []), key=lambda t: (t.get("parent_id") is not None,
+                                                               t.get("id") or 0))
+        for task in tasks:
             conn.execute(
-                "INSERT INTO tasks(id, parent_id, day, text, notes, priority, completed, "
-                "completed_at, due_date, tags, sort_order, created_at, carried_from) "
-                "VALUES(:id,:parent_id,:day,:text,:notes,:priority,:completed,:completed_at,"
-                ":due_date,:tags,:sort_order,:created_at,:carried_from)",
-                task,
+                f"INSERT INTO tasks({', '.join(task_cols)}) "
+                f"VALUES({','.join('?' * len(task_cols))})",
+                [task.get(c) for c in task_cols],
             )
         for entry in payload.get("xp_log", []):
             conn.execute(
-                "INSERT INTO xp_log(id, day, task_id, points, reason, created_at) "
-                "VALUES(:id,:day,:task_id,:points,:reason,:created_at)",
-                entry,
+                f"INSERT INTO xp_log({', '.join(xp_cols)}) "
+                f"VALUES({','.join('?' * len(xp_cols))})",
+                [entry.get(c) for c in xp_cols],
             )
         for key, value in (payload.get("settings") or {}).items():
             conn.execute("INSERT INTO settings(key, value) VALUES(?,?)", (key, value))
         conn.commit()
+        conn.resync_sequences()
         return len(payload.get("tasks", []))
 
     return _import_legacy(payload)

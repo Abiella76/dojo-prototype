@@ -291,6 +291,28 @@ def hero(stats: dict[str, Any], name: str, day: dict[str, int], mode: str,
     _frame(body, mode, height=168, extra_css=css)
 
 
+def reward_burst(amount: int, note: str = "", sparks: int = 10) -> None:
+    """Throw the points across the middle of the screen, arcade style.
+
+    Rendered into the main document (not a component iframe) so it can cover
+    the whole viewport. It is pointer-events: none throughout, so it never
+    swallows a click even while it is on screen.
+    """
+    pips = "".join(
+        f'<i class="spark" style="--a:{int(i * 360 / max(sparks, 1))}deg;'
+        f'--d:{28 + (i * 37) % 130}px;animation-delay:{(i % 4) * 28}ms"></i>'
+        for i in range(sparks)
+    )
+    tail = f"<small>{esc(note)}</small>" if note else ""
+    st.markdown(
+        f'<div class="burst-layer" aria-live="polite">'
+        f'<span class="burst-flash"></span>{pips}'
+        f'<div class="burst-num">+{int(amount)}<small>XP</small>{tail}</div>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def rank_up_banner(belt: str, level: int, colour: str, mode: str) -> None:
     """Promotion crest, drawn for the rank-up dialog."""
     body = f"""

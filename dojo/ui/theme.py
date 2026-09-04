@@ -273,6 +273,66 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   box-shadow: inset 0 -2px 0 var(--accent);
 }}
 
+/* ── reward burst ───────────────────────────────────────
+   A full-screen, pointer-events-none overlay so it can't block a click. It
+   sits centre-screen rather than up by the HUD: an iframe always paints above
+   the parent's positioned content, so anything overlapping the HUD panel would
+   be hidden behind it no matter its z-index. */
+.burst-layer {{
+  position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;
+  display: grid; place-items: center;
+}}
+.burst-flash {{
+  position: absolute; width: 60vmin; height: 60vmin; border-radius: 50%;
+  background: radial-gradient(circle, var(--glow) 0%, transparent 62%);
+  animation: flash .55s ease-out forwards;
+}}
+@keyframes flash {{
+  0% {{ opacity: 0; transform: scale(.2); }}
+  22% {{ opacity: .85; }}
+  100% {{ opacity: 0; transform: scale(1.5); }}
+}}
+.burst-num {{
+  position: relative; text-align: center;
+  font-family: var(--font-display); font-weight: 800; letter-spacing: .02em;
+  font-size: clamp(3rem, 11vmin, 7rem); line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 18px var(--glow), 0 0 55px var(--glow), 0 4px 0 rgba(0,0,0,.5);
+  animation: burstpop 1.9s cubic-bezier(.16,.9,.3,1) forwards;
+}}
+.burst-num small {{
+  display: block; margin-top: .5rem;
+  font-size: clamp(.6rem, 1.7vmin, .9rem); letter-spacing: .42em;
+  color: var(--accent-2); text-shadow: 0 0 12px var(--accent-2);
+}}
+@keyframes burstpop {{
+  0%   {{ opacity: 0; transform: translateY(26px) scale(.35) rotate(-6deg); }}
+  16%  {{ opacity: 1; transform: translateY(0) scale(1.25) rotate(2deg); }}
+  28%  {{ transform: translateY(0) scale(1) rotate(0); }}
+  62%  {{ opacity: 1; transform: translateY(-26px) scale(1); }}
+  100% {{ opacity: 0; transform: translateY(-160px) scale(.92); }}
+}}
+/* sparks thrown outward on the impact frame */
+.spark {{
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 12px var(--accent);
+  animation: fly 1.1s cubic-bezier(.15,.85,.3,1) forwards;
+}}
+.spark:nth-child(even) {{ background: var(--accent-2); box-shadow: 0 0 12px var(--accent-2); }}
+@keyframes fly {{
+  0%   {{ opacity: 0; transform: rotate(var(--a)) translateX(0) scale(.4); }}
+  18%  {{ opacity: 1; }}
+  100% {{ opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(.2); }}
+}}
+/* the audio element is only a carrier for autoplay — never show the player.
+   Clipped rather than display:none, which some browsers treat as "not playing". */
+[class*="st-key-sfx-"] {{
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  overflow: hidden !important; clip: rect(0 0 0 0); white-space: nowrap;
+  border: 0 !important; padding: 0 !important; margin: -1px !important;
+  box-shadow: none !important; background: transparent !important;
+}}
+
 /* ── rank-up dialog ────────────────────────────────────── */
 [data-testid="stDialog"] div[role="dialog"] {{
   background: linear-gradient(180deg, var(--surface-2), var(--surface));
@@ -289,6 +349,10 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 [class*="st-key-card-"] {{ animation: rise .22s ease both; }}
 @media (prefers-reduced-motion: reduce) {{
   *, *::before, *::after {{ animation: none !important; transition: none !important; }}
+  /* The burst is *only* an animation — with animations off it would render at
+     its static styles and sit on screen forever, so drop it entirely. The
+     sound still plays, and the XP total updates in the HUD regardless. */
+  .burst-layer {{ display: none !important; }}
 }}
 </style>
 """,

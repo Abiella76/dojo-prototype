@@ -10,6 +10,7 @@ states, gradients and animation behave properly.
 from __future__ import annotations
 
 import html
+import json
 from datetime import date, timedelta
 from typing import Any, Iterable
 
@@ -484,3 +485,124 @@ def achievement_grid(items: Iterable[dict[str, Any]], mode: str) -> None:
 
 quest_header_alias = quest_header
 task_header = quest_header  # older name
+
+# The reward animation, run in the browser the moment Clear is pressed.
+#
+# This is injected into the main document rather than executed inside the
+# component iframe. Streamlit tears the iframe down on every rerun, and a
+# listener registered from inside it dies with its realm — it would fire once
+# and then go quiet. Running in the parent's own realm, it survives reruns.
+_INSTANT_JS = r"""
+(function () {
+  var D = document, W = window;
+  if (D.__dojoInstant) return;
+  D.__dojoInstant = true;
+
+  function reduced() {
+    try { return W.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch (e) { return false; }
+  }
+
+  function burst(amount, note) {
+    var layer = D.createElement('div');
+    layer.className = 'burst-layer dojo-instant';
+    layer.setAttribute('aria-live', 'polite');
+    var html = '<span class="burst-flash"></span>';
+    for (var i = 0; i < 10; i++) {
+      html += '<i class="spark" style="--a:' + (i * 36) + 'deg;--d:' +
+              (28 + (i * 37) % 130) + 'px;animation-delay:' + ((i % 4) * 28) + 'ms"></i>';
+    }
+    html += '<div class="burst-num">+' + amount + '<small>XP</small>' +
+            (note ? '<small>' + note + '</small>' : '') + '</div>';
+    layer.innerHTML = html;
+    D.body.appendChild(layer);
+    W.setTimeout(function () {
+      if (layer.parentNode) layer.parentNode.removeChild(layer);
+    }, 2200);
+  }
+
+  function play() {
+    if (!W.__dojoSnd) return;
+    try {
+      var a = new Audio('data:audio/wav;base64,' + W.__dojoSnd);
+      var r = a.play();
+      if (r && r.catch) r.catch(function () {});   // a blocked autoplay is not worth raising
+    } catch (e) {}
+  }
+
+  D.addEventListener('pointerdown', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    if (!t.closest('[class*="st-key-done_"] button')) return;
+    var card = t.closest('[class*="st-key-card-task-"]');
+    if (!card) return;
+    var el = card.querySelector('.reward');
+    var m = el && el.textContent.match(/(\d+)/);
+    if (!m) return;
+    var chip = card.querySelector('.chip-tier');
+    var note = chip ? chip.textContent.replace(/^[SABC]/, '').trim() : '';
+    W.__dojoBurstAt = Date.now();
+    if (!reduced()) burst(m[1], note);
+    play();
+  }, true);
+
+  // The server renders its own burst a second or two later. Drop that one when
+  // this has already fired, so the reward never appears twice.
+  try {
+    new MutationObserver(function (muts) {
+      if (!W.__dojoBurstAt || Date.now() - W.__dojoBurstAt > 8000) return;
+      for (var i = 0; i < muts.length; i++) {
+        var added = muts[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n.nodeType !== 1) continue;
+          var hit = (n.classList && n.classList.contains('burst-layer')) ? n
+                  : (n.querySelector ? n.querySelector('.burst-layer') : null);
+          if (hit && !hit.classList.contains('dojo-instant') && hit.parentNode) {
+            hit.parentNode.removeChild(hit);
+          }
+        }
+      }
+    }).observe(D.body, { childList: true, subtree: true });
+  } catch (e) {}
+})();
+"""
+
+
+def instant_reward(sound_b64: str = "") -> None:
+    """Fire the points burst the instant Clear is pressed, with no server wait.
+
+    Every card already shows what clearing it is worth, and that figure is pure
+    arithmetic — no database involved. So the browser can play the whole reward
+    immediately instead of sitting through two script runs and a round of
+    queries first.
+
+    A progressive enhancement, not a replacement: the server still renders its
+    own burst, and the observer above drops that one only when this has already
+    fired. If the script cannot install — a sandbox change, a blocked component
+    — nothing is removed and the behaviour is exactly what it was before.
+    """
+    bootstrap = """
+(function () {
+  var D, W;
+  try { W = window.parent; D = W.document; } catch (e) { return; }  // leave the server burst alone
+  if (!D || !D.head) return;
+  // Reassigned on every rerun so the sound toggle takes effect at once, even
+  // though the code below is only ever installed once.
+  W.__dojoSnd = %SND%;
+  if (D.getElementById('dojo-instant')) return;
+  var s = D.createElement('script');
+  s.id = 'dojo-instant';
+  s.textContent = %CODE%;
+  D.head.appendChild(s);
+})();
+"""
+    payload = (bootstrap
+               .replace("%SND%", json.dumps(sound_b64))
+               .replace("%CODE%", json.dumps(_INSTANT_JS)))
+    st.iframe(
+        "<!doctype html><html><body><script>" + payload + "</script></body></html>",
+        # 1px, not 0: Streamlit rejects a zero height. The keyed container this
+        # sits in is clipped to a pixel by the theme, so nothing shows.
+        height=1,
+    )

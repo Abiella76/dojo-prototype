@@ -7,7 +7,7 @@ from datetime import date
 import streamlit as st
 
 from .. import ai, db, gamify
-from ..config import PRIORITIES, TIER_LABELS
+from ..config import PRIORITIES, TIER_LABELS, belt_for_xp
 from . import components as c
 
 
@@ -176,15 +176,19 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
             else:
                 if st.button("Clear", key=f"done_{task['id']}", type="primary",
                              width="stretch"):
-                    before_level = gamify.lifetime_stats()["level"]
+                    # Only the belt level matters here, and that follows from
+                    # total XP alone. A full lifetime_stats() either side of the
+                    # write spent fourteen round trips answering one question,
+                    # with the user waiting on every one of them.
+                    before_level = belt_for_xp(db.total_xp())[1]
                     gained = db.set_completed(task["id"], True, streak=streak)
-                    after = gamify.lifetime_stats()
+                    belt, level, _, _ = belt_for_xp(db.total_xp())
                     # Handed to the next run so the popup animates on a fresh
                     # page rather than being wiped by the rerun.
                     st.session_state["xp_gain"] = gained
                     st.session_state["xp_note"] = TIER_LABELS.get(task["priority"], "")
-                    if after["level"] > before_level:
-                        st.session_state["belt_up"] = (after["belt"], after["level"])
+                    if level > before_level:
+                        st.session_state["belt_up"] = (belt, level)
                     _rerun()
 
         with cols[1]:

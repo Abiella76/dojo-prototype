@@ -465,14 +465,14 @@ def active_days() -> set[str]:
     return {r["day"] for r in rows}
 
 
-def current_streak(today: date | None = None) -> int:
+def current_streak(today: date | None = None, *, days: set[str] | None = None) -> int:
     """Consecutive active days ending today — or yesterday, if today is still young.
 
     A run is not broken until a whole day passes with nothing finished, so an
     untouched morning keeps yesterday's streak on the board.
     """
     today = today or date.today()
-    days = active_days()
+    days = active_days() if days is None else days
     anchor = today if today.isoformat() in days else today - timedelta(days=1)
     streak, cursor = 0, anchor
     while cursor.isoformat() in days:

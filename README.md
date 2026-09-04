@@ -95,8 +95,12 @@ Plus **+5** for beating a due date and **+25** for clearing a full day's board
 Lifetime XP maps to belts — White, Yellow, Orange, Green, Blue, Purple, Brown,
 Black, Red, Grandmaster — and there are 12 achievements to collect.
 
-**Game feel.** Clearing a quest erupts a `+N XP` burst out of the HUD's XP bar.
-Crossing a belt threshold opens a rank-up takeover. The HUD carries a rank
+**Game feel.** Clearing a quest throws a `+N XP` burst across the middle of the
+screen with sparks and a short arcade chime; a promotion gets its own fanfare.
+Sound is a sidebar toggle, remembered between sessions. The effects are
+synthesised in `dojo/sfx.py` rather than shipped as audio files, so the notes
+stay tweakable and there are no binaries in the repo.
+Crossing a belt threshold opens a rank-up dialog. The HUD carries a rank
 crest, a shimmering XP bar and a streak flame that burns harder the longer your
 run. Buttons are pressable — they depress onto their own shadow. All of it
 respects `prefers-reduced-motion`.
@@ -142,6 +146,7 @@ app.py                 entry point, sidebar, routing
 dojo/config.py         tiers, XP rules, belts, validated palettes
 dojo/db.py             storage (SQLite or Postgres), XP ledger, carry-over, backup
 dojo/gamify.py         XP preview, belt progress, achievements
+dojo/sfx.py            synthesised sound effects (pure stdlib)
 dojo/nlp.py            local natural-language task parser
 dojo/ai.py             optional LLM assist, degrades gracefully
 dojo/ui/theme.py       design tokens and the neon-arcade CSS

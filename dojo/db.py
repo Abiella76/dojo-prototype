@@ -397,7 +397,13 @@ def set_completed(task_id: int, completed: bool, *, streak: int = 0) -> int:
         conn.execute(
             "UPDATE tasks SET completed = 0, completed_at = NULL WHERE id = ?", (task_id,)
         )
-        conn.execute("DELETE FROM xp_log WHERE task_id = ?", (task_id,))
+        # Reopening withdraws what completing it paid, but not the bonus for
+        # having created it — that was earned when the quest was accepted and
+        # the quest still exists.
+        conn.execute(
+            "DELETE FROM xp_log WHERE task_id = ? AND reason <> ?",
+            (task_id, config.CREATE_REASON),
+        )
         conn.commit()
 
     _sync_sweep_bonus(task["day"])
@@ -413,6 +419,22 @@ def _log_xp(day: str, task_id: int | None, points: int, reason: str) -> None:
         (day, task_id, points, reason, datetime.now().isoformat(timespec="seconds")),
     )
     conn.commit()
+
+
+def award_creation(day: str, task_id: int) -> int:
+    """Award the flat bonus for accepting a new quest. Returns the points.
+
+    Deliberately not inside add_task(): that is also how carried-over work,
+    restored backups and checklist steps get written, and none of those are
+    the user choosing to plan something. Only the capture box calls this.
+
+    Deleting the quest removes the row with it (delete_task clears the ledger
+    by task id), so create-and-delete cannot be farmed for points.
+    """
+    if config.CREATE_XP <= 0:
+        return 0
+    _log_xp(day, task_id, config.CREATE_XP, config.CREATE_REASON)
+    return config.CREATE_XP
 
 
 def _sync_sweep_bonus(day: str) -> None:

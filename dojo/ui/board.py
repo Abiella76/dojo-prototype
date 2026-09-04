@@ -50,12 +50,20 @@ def quick_add(day: str, api_key: str | None) -> None:
         )
         for step in parsed.get("subtasks", []):
             db.add_task(day, step, priority, parent_id=task_id)
+        # Planning is work: accepting a quest pays, so the board is worth
+        # keeping current and not only worth clearing.
+        gained = db.award_creation(day, task_id)
         bits = [TIER_LABELS.get(priority, priority)]
         if parsed["due_date"]:
             bits.append(f"due {parsed['due_date']}")
         if parsed["tags"]:
             bits.append(" ".join(f"#{t}" for t in parsed["tags"]))
         st.toast(f"Quest accepted — {' · '.join(bits)}")
+        if gained:
+            # Handed to the next run, exactly as clearing a quest does, so the
+            # same burst and chime play.
+            st.session_state["xp_gain"] = gained
+            st.session_state["xp_note"] = "ACCEPTED"
         _rerun()
     elif submitted:
         st.warning("Nothing to accept — write a quest first.")

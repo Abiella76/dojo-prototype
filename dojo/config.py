@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Dojo"
-APP_VERSION = "11.4"
+APP_VERSION = "11.5"
 
 # ────── storage ──────
 # Overridable so tests and deployments can point somewhere writable.
@@ -37,6 +37,9 @@ PRIORITY_GLYPHS = {"Critical": "▲▲", "High": "▲", "Medium": "■", "Low": 
 
 # ────── experience points ──────
 BASE_XP = {"Critical": 50, "High": 30, "Medium": 20, "Low": 10}
+
+CREATE_XP = 10        # accepting a quest — planning is work too
+CREATE_REASON = "Quest accepted"   # ledger label; also how the row is protected
 
 EARLY_BONUS = 5       # finished on or before its due date
 SWEEP_BONUS = 25      # every task on the board finished

@@ -263,3 +263,41 @@ def test_legacy_backup_imports():
     tasks = db.list_tasks("2026-08-30")
     assert {t["text"] for t in tasks} == {"old task", "still open"}
     assert db.total_xp() == config.BASE_XP["High"]
+
+
+def test_accepting_a_quest_awards_the_creation_bonus():
+    day = "2026-09-02"
+    task_id = db.add_task(day, "plan something", "Low")
+    assert db.total_xp() == 0            # add_task alone never pays
+    assert db.award_creation(day, task_id) == config.CREATE_XP
+    assert db.total_xp() == config.CREATE_XP
+    assert db.xp_for_day(day) == config.CREATE_XP
+
+
+def test_creation_bonus_survives_completing_and_reopening():
+    """Reopening withdraws what finishing paid, not the bonus for creating it."""
+    day = "2026-09-02"
+    task_id = db.add_task(day, "round trip", "Critical")
+    db.award_creation(day, task_id)
+    db.set_completed(task_id, True)
+    assert db.total_xp() == config.CREATE_XP + config.BASE_XP["Critical"]
+    db.set_completed(task_id, False)
+    assert db.total_xp() == config.CREATE_XP
+
+
+def test_deleting_a_quest_takes_its_creation_bonus_with_it():
+    """Otherwise create-and-delete would be a points faucet."""
+    day = "2026-09-02"
+    for _ in range(5):
+        db.award_creation(day, db.add_task(day, "churn", "Low"))
+    assert db.total_xp() == 5 * config.CREATE_XP
+    for task in db.list_tasks(day):
+        db.delete_task(task["id"])
+    assert db.total_xp() == 0
+
+
+def test_creation_bonus_is_not_paid_for_checklist_steps():
+    """Only the capture box awards it; subtasks and restores go through add_task."""
+    parent = db.add_task("2026-09-02", "parent", "High")
+    db.add_task("2026-09-02", "step", "High", parent_id=parent)
+    assert db.total_xp() == 0

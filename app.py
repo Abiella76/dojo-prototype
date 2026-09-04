@@ -210,8 +210,15 @@ board_tab, stats_tab = st.tabs(["Quest Log", "Record"])
 with board_tab:
     # Installs the click-time burst. Cheap, and it is what makes clearing a
     # quest feel immediate rather than arriving after the rerun.
-    with st.container(key="sfx-instant"):
-        c.instant_reward(base64.b64encode(sfx.clear_sound()).decode() if sound_on else "")
+    #
+    # Fetched by name rather than called directly: a deploy can re-run this
+    # script against a module still cached from the previous build, and a
+    # helper that does not exist yet must not take the whole app down. Without
+    # it the burst simply falls back to the server-rendered one.
+    _instant = getattr(c, "instant_reward", None)
+    if _instant is not None:
+        with st.container(key="sfx-instant"):
+            _instant(base64.b64encode(sfx.clear_sound()).decode() if sound_on else "")
 
     c.hero(lifetime, user_name, summary, mode)
     if promotion:

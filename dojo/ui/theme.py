@@ -349,10 +349,23 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 [class*="st-key-card-"] {{ animation: rise .22s ease both; }}
 @media (prefers-reduced-motion: reduce) {{
   *, *::before, *::after {{ animation: none !important; transition: none !important; }}
-  /* The burst is *only* an animation — with animations off it would render at
-     its static styles and sit on screen forever, so drop it entirely. The
-     sound still plays, and the XP total updates in the HUD regardless. */
+  /* The server-drawn burst has no removal timer of its own: with its animation
+     gone it would render at its static styles and sit on screen indefinitely,
+     so that one stays hidden. */
   .burst-layer {{ display: none !important; }}
+  /* The click-time burst *is* removed on a timer, so it can still show the
+     points. Reducing motion means dropping the motion — the sparks and the
+     flash — not withholding the feedback itself. */
+  .burst-layer.burst-still {{ display: grid !important; }}
+  .burst-layer.burst-still .spark,
+  .burst-layer.burst-still .burst-flash {{ display: none !important; }}
+  /* The animated burst travels and fades, so overlapping the page barely
+     registers. A still one just sits there, so give it a card to sit on. */
+  .burst-layer.burst-still .burst-num {{
+    padding: .55rem 1.6rem 1rem; border-radius: 18px;
+    background: var(--surface-2); border: 1px solid var(--accent);
+    box-shadow: 0 10px 40px rgba(0,0,0,.35);
+  }}
 }}
 </style>
 """,

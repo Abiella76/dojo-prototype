@@ -504,8 +504,11 @@ _INSTANT_JS = r"""
   }
 
   function burst(amount, note) {
+    // Reduced motion drops the movement, not the reward: the points still
+    // appear, just without sparks or travel, and for a shorter beat.
+    var still = reduced();
     var layer = D.createElement('div');
-    layer.className = 'burst-layer dojo-instant';
+    layer.className = 'burst-layer dojo-instant' + (still ? ' burst-still' : '');
     layer.setAttribute('aria-live', 'polite');
     var html = '<span class="burst-flash"></span>';
     for (var i = 0; i < 10; i++) {
@@ -518,7 +521,7 @@ _INSTANT_JS = r"""
     D.body.appendChild(layer);
     W.setTimeout(function () {
       if (layer.parentNode) layer.parentNode.removeChild(layer);
-    }, 2200);
+    }, still ? 1400 : 2200);
   }
 
   function play() {
@@ -532,7 +535,7 @@ _INSTANT_JS = r"""
 
   function reward(amount, note) {
     W.__dojoBurstAt = Date.now();
-    if (!reduced()) burst(amount, note);
+    burst(amount, note);
     play();
   }
 

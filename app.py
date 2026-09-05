@@ -134,6 +134,19 @@ lifetime = gamify.lifetime_stats()
 summary = db.day_summary(day_str)
 streak = lifetime["streak"]
 
+# ────── achievements ──────
+# Claimed here rather than at each action: a badge can fall out of clearing a
+# quest, accepting one, or a streak simply rolling over at midnight, and this
+# is the one place every path passes through. Claiming records them, so each
+# badge fires exactly once.
+unlocked = gamify.claim_new_achievements(lifetime)
+if unlocked:
+    c.achievement_payload(unlocked)
+    for a in unlocked:
+        st.toast(f"**{a['label']}** — {a['description']}", icon=a.get("icon") or "🏆")
+    if sound_on:
+        _play(sfx.badge_sound(), "badge")
+
 
 @st.dialog("RANK UP")
 def _rank_up_dialog(belt: str, level: int) -> None:

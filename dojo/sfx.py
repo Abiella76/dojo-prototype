@@ -62,3 +62,14 @@ def rank_up_sound() -> bytes:
     for i, (f, ms) in enumerate(notes):
         samples += _tone(f, ms, amp=0.34, shape="blip" if i < 3 else "hold")
     return _render(samples)
+
+
+@lru_cache(maxsize=4)
+def badge_sound() -> bytes:
+    """Achievement fanfare — longer and higher than a rank-up, so unlocking a
+    badge is audibly a bigger moment than climbing a belt."""
+    notes = [(784, 80), (1047, 80), (1319, 80), (1568, 110), (2093, 520)]  # G5 C6 E6 G6 C7
+    samples: list[float] = []
+    for freq, ms in notes:
+        samples += _tone(freq, ms, amp=0.34)
+    return _render(samples)

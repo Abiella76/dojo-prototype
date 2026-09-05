@@ -335,6 +335,53 @@ h3::before {{
   18%  {{ opacity: 1; }}
   100% {{ opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(.2); }}
 }}
+/* ── achievement badge ──────────────────────────────────
+   Built and torn down by the injected script, never by the server: its exit
+   has to work even when animations are off. A scrim dims the page so the badge
+   reads as an event rather than another overlay competing with the XP burst. */
+.badge-layer {{
+  position: fixed; inset: 0; z-index: 2147483100; pointer-events: none;
+  display: grid; place-items: center;
+}}
+.badge-scrim {{
+  position: absolute; inset: 0; background: rgba(4,4,12,.72);
+  animation: scrimin .35s ease forwards;
+}}
+@keyframes scrimin {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+.badge-card {{
+  position: relative; text-align: center; padding: 2rem 2.8rem 1.7rem;
+  border-radius: 20px; border: 1px solid var(--accent);
+  background: linear-gradient(180deg, var(--surface-3), var(--surface-2));
+  box-shadow: 0 0 70px var(--glow), 0 30px 80px rgba(0,0,0,.75);
+  animation: badgein .55s cubic-bezier(.16,1.1,.3,1) both,
+             badgeout .5s ease 3.2s both;
+}}
+@keyframes badgein {{
+  0% {{ opacity: 0; transform: translateY(28px) scale(.82); }}
+  100% {{ opacity: 1; transform: none; }}
+}}
+@keyframes badgeout {{ to {{ opacity: 0; transform: translateY(-18px) scale(.97); }} }}
+.badge-crest {{
+  font-size: 3.6rem; line-height: 1;
+  filter: drop-shadow(0 0 22px var(--glow));
+  animation: crestpop .7s cubic-bezier(.16,1.4,.3,1) both;
+}}
+@keyframes crestpop {{
+  0% {{ transform: scale(.3) rotate(-14deg); }}
+  100% {{ transform: none; }}
+}}
+.badge-kicker {{
+  margin-top: .9rem; font-family: var(--font-display);
+  font-size: .64rem; font-weight: 700; letter-spacing: .34em;
+  color: var(--accent-2); text-shadow: 0 0 14px var(--glow-2);
+}}
+.badge-name {{
+  margin-top: .45rem; font-family: var(--font-display);
+  font-size: 1.9rem; font-weight: 800; letter-spacing: .04em; color: var(--text);
+  text-shadow: 0 0 26px var(--glow);
+}}
+.badge-desc {{ margin-top: .3rem; font-size: .86rem; color: var(--text-2); }}
+
 /* the audio element is only a carrier for autoplay — never show the player.
    Clipped rather than display:none, which some browsers treat as "not playing". */
 [class*="st-key-sfx-"] {{
@@ -372,6 +419,11 @@ h3::before {{
   .burst-layer.burst-still .burst-flash {{ display: none !important; }}
   /* The animated burst travels and fades, so overlapping the page barely
      registers. A still one just sits there, so give it a card to sit on. */
+  /* Same bargain as the burst: the badge is script-removed, so it can show —
+     it simply arrives without motion. */
+  .badge-card {{ animation: none !important; }}
+  .badge-crest {{ animation: none !important; }}
+  .badge-scrim {{ animation: none !important; opacity: 1; }}
   .burst-layer.burst-still .burst-num {{
     padding: .55rem 1.6rem 1rem; border-radius: 18px;
     background: var(--surface-2); border: 1px solid var(--accent);

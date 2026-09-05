@@ -301,3 +301,51 @@ def test_creation_bonus_is_not_paid_for_checklist_steps():
     parent = db.add_task("2026-09-02", "parent", "High")
     db.add_task("2026-09-02", "step", "High", parent_id=parent)
     assert db.total_xp() == 0
+
+
+def test_accepted_counter_comes_from_the_ledger():
+    """Not from the task table: restores and carry-over must not inflate it."""
+    day = "2026-09-02"
+    for _ in range(3):
+        db.award_creation(day, db.add_task(day, "planned", "Low"))
+    db.add_task(day, "not accepted through the box", "Low")   # e.g. a restore
+    assert gamify.lifetime_stats()["accepted"] == 3
+
+
+def test_new_achievements_fire_once_each():
+    day = "2026-09-02"
+    gamify.claim_new_achievements()          # seed the baseline on an empty board
+    db.set_completed(db.add_task(day, "the first", "Low"), True)
+    fresh = gamify.claim_new_achievements()
+    assert "first" in {a["key"] for a in fresh}
+    assert gamify.claim_new_achievements() == []      # already announced
+
+
+def test_first_claim_seeds_silently_on_an_established_board():
+    """A board with history has not just earned a dozen badges."""
+    day = "2026-09-02"
+    for i in range(12):
+        db.set_completed(db.add_task(day, f"old {i}", "Critical"), True)
+    stats = gamify.lifetime_stats()
+    assert sum(1 for a in gamify.achievements(stats) if a["earned"]) >= 3
+    assert gamify.claim_new_achievements() == []       # silent baseline
+    assert db.get_setting(gamify.SEEN_SETTING) is not None
+
+
+def test_boss_and_accept_ladders_trip_at_their_thresholds():
+    day = "2026-09-02"
+    gamify.claim_new_achievements()
+    for i in range(10):
+        db.award_creation(day, db.add_task(day, f"boss {i}", "Critical"))
+    keys = {a["key"] for a in gamify.claim_new_achievements()}
+    assert {"accepted10", "boss1"} - keys == {"boss1"}   # accepted, none cleared yet
+    for task in db.list_tasks(day):
+        db.set_completed(task["id"], True)
+    keys = {a["key"] for a in gamify.claim_new_achievements()}
+    assert "boss10" in keys and "boss1" in keys
+
+
+def test_every_achievement_has_an_icon_and_a_unique_key():
+    keys = [a[0] for a in gamify.ACHIEVEMENTS]
+    assert len(keys) == len(set(keys))
+    assert all(icon.strip() for _, _, _, icon, _ in gamify.ACHIEVEMENTS)

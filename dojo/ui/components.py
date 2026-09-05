@@ -464,6 +464,7 @@ def achievement_grid(items: Iterable[dict[str, Any]], mode: str) -> None:
     items = list(items)
     cards = "".join(
         f'<div class="ach{"" if item["earned"] else " locked"}">'
+        f'<em>{esc(item.get("icon", ""))}</em>'
         f'<b>{esc(item["label"])}</b><span>{esc(item["description"])}</span>'
         f'<i>{"Earned" if item["earned"] else "Locked"}</i></div>'
         for item in items
@@ -473,6 +474,9 @@ def achievement_grid(items: Iterable[dict[str, Any]], mode: str) -> None:
 .ach { padding: 12px 13px; border-radius: 12px; background: var(--surface-2);
        border: 1px solid var(--border); border-left: 3px solid var(--accent); }
 .ach.locked { opacity: .45; border-left-color: var(--border); }
+.ach em { display: block; font-size: 1.35rem; font-style: normal; line-height: 1;
+          margin-bottom: 6px; }
+.ach.locked em { filter: grayscale(1); }
 .ach b { display: block; font-size: .86rem; margin-bottom: 3px; }
 .ach span { display: block; font-size: .72rem; color: var(--text-3); line-height: 1.35; }
 .ach i { display: block; margin-top: 7px; font-style: normal; font-size: .64rem;
@@ -480,7 +484,7 @@ def achievement_grid(items: Iterable[dict[str, Any]], mode: str) -> None:
 .ach:not(.locked) i { color: var(--accent); }
 """
     _frame(f'<div class="grid">{cards}</div>', mode,
-           height=int(((len(items) + 3) // 4) * 112 + 12), extra_css=css)
+           height=int(((len(items) + 3) // 4) * 138 + 12), extra_css=css)
 
 
 quest_header_alias = quest_header
@@ -587,10 +591,58 @@ _INSTANT_JS = r"""
     creationReward(form);
   }, true);
 
+  // ── achievement badges ───────────────────────────────────────────────
+  // The server marks new badges up as data; this builds and, crucially,
+  // removes them. Queued rather than stacked: two at once would overlap.
+  var queue = [], showing = false;
+
+  function drainBadges() {
+    if (showing || !queue.length) return;
+    showing = true;
+    var b = queue.shift();
+    var still = reduced();
+    var layer = D.createElement('div');
+    layer.className = 'badge-layer' + (still ? ' badge-still' : '');
+    layer.setAttribute('role', 'status');
+    layer.innerHTML =
+      '<div class="badge-scrim"></div>' +
+      '<div class="badge-card">' +
+        '<div class="badge-crest">' + b.icon + '</div>' +
+        '<div class="badge-kicker">ACHIEVEMENT UNLOCKED</div>' +
+        '<div class="badge-name"></div>' +
+        '<div class="badge-desc"></div>' +
+      '</div>';
+    // textContent, not innerHTML: the label and description are data.
+    layer.querySelector('.badge-name').textContent = b.label;
+    layer.querySelector('.badge-desc').textContent = b.desc;
+    D.body.appendChild(layer);
+    W.setTimeout(function () {
+      if (layer.parentNode) layer.parentNode.removeChild(layer);
+      showing = false;
+      drainBadges();
+    }, still ? 2600 : 3800);
+  }
+
+  function scanBadges() {
+    var nodes = D.querySelectorAll('.badge-payload:not([data-seen])');
+    if (!nodes.length) return;
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.setAttribute('data-seen', '1');
+      queue.push({icon: n.getAttribute('data-icon') || '',
+                  label: n.getAttribute('data-label') || '',
+                  desc: n.getAttribute('data-desc') || ''});
+    }
+    drainBadges();
+  }
+
+  scanBadges();   // a payload already on the page when this installs
+
   // The server renders its own burst a second or two later. Drop that one when
   // this has already fired, so the reward never appears twice.
   try {
     new MutationObserver(function (muts) {
+      scanBadges();
       if (!W.__dojoBurstAt || Date.now() - W.__dojoBurstAt > 8000) return;
       for (var i = 0; i < muts.length; i++) {
         var added = muts[i].addedNodes;
@@ -649,3 +701,22 @@ def instant_reward(sound_b64: str = "", create_xp: int = 0) -> None:
         # sits in is clipped to a pixel by the theme, so nothing shows.
         height=1,
     )
+
+def achievement_payload(items: list[dict[str, Any]]) -> None:
+    """Hand newly earned badges to the browser to display.
+
+    Deliberately data, not a rendered overlay. A server-drawn overlay has no
+    way to take itself off the screen: its exit is an animation, and animations
+    are disabled for reduced-motion users, so it would sit there indefinitely —
+    the exact bug the points burst hit. The injected script owns the timer, so
+    the badge always leaves on its own.
+    """
+    if not items:
+        return
+    rows = "".join(
+        f'<i class="badge-payload" data-icon="{esc(a.get("icon", ""))}" '
+        f'data-label="{esc(a["label"])}" data-desc="{esc(a["description"])}"></i>'
+        for a in items
+    )
+    st.markdown(f'<div class="badge-payloads" hidden>{rows}</div>',
+                unsafe_allow_html=True)

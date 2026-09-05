@@ -1,10 +1,11 @@
 """Design tokens and the CSS that restyles Streamlit's own widgets.
 
-The skin is a neon-arcade dark theme. Everything targets Streamlit's real DOM
+The skin is a dark, techy console theme: near-black navy ground under a faint
+blueprint grid, a violet primary with a cyan counterpart. Everything targets Streamlit's real DOM
 (`stButton`, `stTextInput`, keyed containers) rather than bare `<div>` wrappers,
 which Streamlit renders as separate nodes that never reach the widgets.
 
-Colour rules that still hold under the neon skin:
+Colour rules the palette is held to:
   * Difficulty tiers keep their validated ramp and always ship a rank letter
     and label, so hue is never the only channel carrying meaning.
   * Every text token clears 4.5:1 against the surface it sits on.
@@ -16,36 +17,35 @@ import streamlit as st
 
 from ..config import PRIORITY_COLORS
 
+# One palette: the app is dark-only. A techy console look — near-black navy
+# ground, a violet primary with a cyan counterpart, and gradients that run
+# violet → blue → cyan.
+#
+# Every value here is measured, not picked by eye:
+#   text 16.8:1, text-2 8.1:1, text-3 5.2:1 on the card surface
+#   accent (as text) 5.8:1 — a dimmer violet reads prettier but lands at 4.4:1
+#   white on both button-gradient stops: 6.5:1 and 5.2:1
 TOKENS = {
     "dark": {
-        "surface": "#08080c",
-        "surface_2": "#101018",
-        "surface_3": "#181824",
-        "border": "#262638",
-        "border_lit": "#3a3a55",
-        "text": "#eef0f7",
-        "text_2": "#9aa0b8",
-        "text_3": "#6b7190",
-        "accent": "#22d3ee",
-        "accent_2": "#f472d0",
-        "accent_soft": "rgba(34,211,238,0.14)",
-        "glow": "rgba(34,211,238,0.45)",
-        "shadow": "0 2px 0 #05050a, 0 10px 30px rgba(0,0,0,.6)",
-    },
-    "light": {
-        "surface": "#f6f7fb",
-        "surface_2": "#ffffff",
-        "surface_3": "#eceef5",
-        "border": "#d5d9e6",
-        "border_lit": "#b4bbd0",
-        "text": "#0d0f18",
-        "text_2": "#4a5068",
-        "text_3": "#6f7690",
-        "accent": "#0891b2",
-        "accent_2": "#be3fa0",
-        "accent_soft": "rgba(8,145,178,0.10)",
-        "glow": "rgba(8,145,178,0.30)",
-        "shadow": "0 2px 0 #dfe3ee, 0 10px 26px rgba(16,20,40,.10)",
+        "surface": "#070710",
+        "surface_2": "#0e0e1b",
+        "surface_3": "#16162b",
+        "border": "#23233d",
+        "border_lit": "#3a3a63",
+        "text": "#eef0f8",
+        "text_2": "#a2a8c4",
+        "text_3": "#7b83a8",
+        "accent": "#8b7bff",
+        "accent_2": "#22d3ee",
+        # The button fill is a step darker than the accent so white type on it
+        # clears 4.5:1. The prettier violet does not, which is worth knowing:
+        # plenty of decks ship that exact combination failing.
+        "accent_btn": "#6d4aff",
+        "accent_btn_2": "#5730d8",
+        "accent_soft": "rgba(124,92,255,0.16)",
+        "glow": "rgba(124,92,255,0.45)",
+        "glow_2": "rgba(34,211,238,0.35)",
+        "shadow": "0 2px 0 #04040a, 0 12px 34px rgba(0,0,0,.65)",
     },
 }
 
@@ -75,7 +75,6 @@ def css_vars(mode: str) -> str:
 
 def inject(mode: str) -> None:
     t = tokens(mode)
-    dark = mode == "dark"
 
     tier_rules = "\n".join(
         f'[class*="st-key-card-"]:has(.tier-{p.lower()}) {{'
@@ -84,25 +83,26 @@ def inject(mode: str) -> None:
         for p, c in PRIORITY_COLORS.items()
     )
 
-    # A faint scanline wash sells the arcade look; it is skipped in light mode
-    # where it would only muddy the page.
-    scanlines = (
-        """
+    # The techy ground: a faint blueprint grid that fades out down the page,
+    # plus two soft glows — violet at the top left, cyan opposite — so the
+    # background has depth instead of being flat black.
+    canvas = """
 .stApp::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background: repeating-linear-gradient(180deg,
-    rgba(255,255,255,.014) 0 1px, transparent 1px 3px);
+  background-image:
+    linear-gradient(rgba(139,123,255,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139,123,255,.055) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(130% 95% at 50% 0%, #000 28%, transparent 76%);
+  mask-image: radial-gradient(130% 95% at 50% 0%, #000 28%, transparent 76%);
 }
 .stApp::after {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background:
-    radial-gradient(70% 45% at 50% 0%, rgba(34,211,238,.10), transparent 70%),
-    radial-gradient(60% 40% at 88% 8%, rgba(244,114,208,.07), transparent 70%);
+    radial-gradient(58% 44% at 10% 0%, rgba(124,92,255,.22), transparent 68%),
+    radial-gradient(52% 38% at 92% 4%, rgba(34,211,238,.10), transparent 70%);
 }
 """
-        if dark
-        else ""
-    )
 
     st.markdown(
         f"""
@@ -132,7 +132,7 @@ footer, [data-testid="stDecoration"], [data-testid="stAppDeployButton"],
   background: var(--surface-2); border-right: 1px solid var(--border);
 }}
 [data-testid="stSidebar"] * {{ position: relative; z-index: 1; }}
-{scanlines}
+{canvas}
 
 html, body, .stApp, .stMarkdown, p, span, label, li, input, textarea, button {{
   font-family: var(--font-ui);
@@ -174,7 +174,7 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   border: 1px solid var(--border); color: var(--text-2); background: var(--surface-3);
 }}
 .chip-tier {{
-  color: #08080c; border: none; font-weight: 800;
+  color: #070710; border: none; font-weight: 800;
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 }}
 .chip-rank {{
@@ -224,15 +224,16 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   box-shadow: 0 0 0 var(--border), 0 1px 4px rgba(0,0,0,.4), 0 0 10px var(--glow);
 }}
 .stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"] {{
-  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 72%, #000));
-  border-color: var(--accent); color: #04141a;
-  box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 45%, #000),
-              0 6px 18px rgba(0,0,0,.45), 0 0 20px var(--glow);
+  background: linear-gradient(180deg, var(--accent-btn), var(--accent-btn-2));
+  border-color: var(--accent-btn); color: #ffffff;
+  box-shadow: 0 3px 0 rgba(0,0,0,.45), 0 8px 22px rgba(0,0,0,.5),
+              0 0 24px var(--glow);
 }}
-.stButton > button[kind="primary"]:hover {{
-  filter: brightness(1.12); color: #04141a;
-  box-shadow: 0 4px 0 color-mix(in srgb, var(--accent) 45%, #000),
-              0 8px 22px rgba(0,0,0,.5), 0 0 30px var(--glow);
+.stButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primary"]:hover {{
+  filter: brightness(1.1); color: #ffffff;
+  box-shadow: 0 4px 0 rgba(0,0,0,.45), 0 10px 28px rgba(0,0,0,.55),
+              0 0 40px var(--glow);
 }}
 .stButton > button:focus-visible, .stFormSubmitButton > button:focus-visible {{
   outline: 2px solid var(--accent-2); outline-offset: 2px;
@@ -269,8 +270,18 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   text-transform: uppercase; letter-spacing: .1em; font-size: .78rem; font-weight: 700;
 }}
 .stTabs [aria-selected="true"] {{
-  color: var(--accent); background: var(--surface-3);
+  color: var(--text); background: var(--surface-3);
   box-shadow: inset 0 -2px 0 var(--accent);
+}}
+/* Section headings read as console labels: cyan, monospaced, wide tracking,
+   with a rule leading into them. */
+h3 {{
+  color: var(--accent-2) !important; font-family: var(--font-display) !important;
+  font-size: .82rem !important; letter-spacing: .22em !important;
+  display: flex; align-items: center; gap: .6rem;
+}}
+h3::before {{
+  content: ""; width: 26px; height: 1px; background: var(--accent-2); flex: none;
 }}
 
 /* ── reward burst ───────────────────────────────────────

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Dojo"
-APP_VERSION = "11.6"
+APP_VERSION = "12.0"
 
 # ────── storage ──────
 # Overridable so tests and deployments can point somewhere writable.
@@ -98,18 +98,19 @@ def belt_progress(total_xp: int) -> float:
 
 
 # ────── chart palette ──────
-# Categorical slots in fixed order (never cycled).
-SERIES = {
-    "light": ["#0891b2", "#eb6834", "#1baf7a", "#eda100"],
-    "dark": ["#22d3ee", "#d95926", "#199e70", "#c98500"],
-}
+# The app is dark-only, so there is one palette rather than a pair. Categorical
+# slots are in fixed order and never cycled; violet leads because it is the
+# product's primary. Validated against the card surface (#0e0e1b): worst
+# adjacent CVD ΔE 12.7, worst normal-vision ΔE 24.1, all four clear 3:1.
+SERIES = ["#8b7bff", "#22d3ee", "#ff8a1f", "#2dd4a0"]
 
-# Single-hue sequential ramp for the consistency heatmap, darkest-to-brightest
-# cyan on dark so an empty day recedes into the surface.
-SEQUENTIAL_DARK = ["#0e3f4d", "#12657a", "#0e91ad", "#12b5d4", "#22d3ee", "#7ceaf9"]
-SEQUENTIAL_LIGHT = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"]
-SEQUENTIAL = SEQUENTIAL_DARK  # back-compat alias
+# Single-hue sequential ramp for the consistency heatmap: one violet hue,
+# darkest to brightest, so an empty day recedes into the surface (the first
+# step sits at 1.05:1 against it) and a strong day glows. Lightness is
+# monotonic in OKLab — 0.203, 0.279, 0.383, 0.504, 0.661, 0.788.
+SEQUENTIAL = ["#151033", "#241a5e", "#3a26a0", "#5a3fe0", "#8b7bff", "#b9adff"]
 
 
-def sequential(mode: str) -> list[str]:
-    return SEQUENTIAL_DARK if mode == "dark" else SEQUENTIAL_LIGHT
+def sequential(_mode: str | None = None) -> list[str]:
+    """The heatmap ramp. The argument is vestigial — there is one theme now."""
+    return SEQUENTIAL

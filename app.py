@@ -53,9 +53,10 @@ def api_key() -> str | None:
 
 
 # ────── theme ──────
-# Follow whichever theme Streamlit is actually rendering (Settings → Appearance),
-# so the custom markup and the iframed components match its own widgets.
-mode = getattr(getattr(st.context, "theme", None), "type", None) or "dark"
+# Dark only, deliberately. The look is the product's identity rather than a
+# preference, and a light rendering of this palette would be a different design.
+# .streamlit/config.toml pins Streamlit's own widgets to the same values.
+mode = "dark"
 inject(mode)
 
 def _play(data: bytes, key: str) -> None:
@@ -191,7 +192,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.caption(f"Theme: **{mode}** — follows your system; override under ⋮ → Settings.")
 
     # Which store is live matters: on Streamlit Cloud a SQLite file is wiped
     # whenever the app sleeps, so say plainly which one is in use.

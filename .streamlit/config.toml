@@ -1,30 +1,19 @@
-# Both palettes are declared here so Streamlit paints its own widgets correctly
-# in either mode. dojo/ui/theme.py mirrors the same tokens for the custom
-# markup, reading the active mode from st.context.theme.
+# One theme, declared once. The app's identity is a dark console look, so it no
+# longer follows the system's light/dark preference — a light variant of this
+# palette would be a different product. dojo/ui/theme.py mirrors these values
+# for the custom markup.
 [theme]
 base = "dark"
-primaryColor = "#22d3ee"
+backgroundColor = "#070710"
+secondaryBackgroundColor = "#0e0e1b"
+textColor = "#eef0f8"
+borderColor = "#23233d"
+primaryColor = "#8b7bff"
+linkColor = "#22d3ee"
+codeBackgroundColor = "#16162b"
 font = "sans-serif"
 baseRadius = "0.5rem"
 buttonRadius = "0.5rem"
-
-[theme.dark]
-backgroundColor = "#08080c"
-secondaryBackgroundColor = "#101018"
-textColor = "#eef0f7"
-borderColor = "#262638"
-primaryColor = "#22d3ee"
-linkColor = "#22d3ee"
-codeBackgroundColor = "#181824"
-
-[theme.light]
-backgroundColor = "#f6f7fb"
-secondaryBackgroundColor = "#eceef5"
-textColor = "#0d0f18"
-borderColor = "#d5d9e6"
-primaryColor = "#0891b2"
-linkColor = "#0891b2"
-codeBackgroundColor = "#eceef5"
 
 [server]
 headless = true

@@ -61,7 +61,7 @@ def _daily_frame(days: int, today: date) -> pd.DataFrame:
 def render(mode: str, today: date | None = None) -> None:
     today = today or date.today()
     stats = gamify.lifetime_stats()
-    series = SERIES[mode][0]
+    series = SERIES[0]
 
     label = st.segmented_control("Range", list(RANGES), default="90 days",
                                  key="stats_range") or "90 days"

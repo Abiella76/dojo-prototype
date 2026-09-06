@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from datetime import date, timedelta
@@ -349,3 +350,29 @@ def test_every_achievement_has_an_icon_and_a_unique_key():
     keys = [a[0] for a in gamify.ACHIEVEMENTS]
     assert len(keys) == len(set(keys))
     assert all(icon.strip() for _, _, _, icon, _ in gamify.ACHIEVEMENTS)
+
+
+def test_twenty_quest_badge_trips_at_twenty():
+    day = "2026-09-02"
+    for i in range(19):
+        db.set_completed(db.add_task(day, f"q{i}", "Low"), True)
+    assert not any(a["key"] == "twenty" and a["earned"] for a in gamify.achievements())
+    db.set_completed(db.add_task(day, "the twentieth", "Low"), True)
+    assert any(a["key"] == "twenty" and a["earned"] for a in gamify.achievements())
+
+
+def test_a_badge_added_later_still_reaches_someone_who_already_qualifies():
+    """Introducing a badge should announce it to boards that have already met it.
+
+    This is what makes a new badge visible without having to earn it again, and
+    it is the opposite of the first-run baseline — that one is silent because
+    nothing was earned just then; this one fires because the badge is new.
+    """
+    day = "2026-09-02"
+    for i in range(20):
+        db.set_completed(db.add_task(day, f"q{i}", "Low"), True)
+    gamify.claim_new_achievements()                    # everything current becomes history
+    seen = set(json.loads(db.get_setting(gamify.SEEN_SETTING)))
+    seen.discard("twenty")                             # as if the badge shipped afterwards
+    db.set_setting(gamify.SEEN_SETTING, json.dumps(sorted(seen)))
+    assert "twenty" in {a["key"] for a in gamify.claim_new_achievements()}

@@ -72,6 +72,7 @@ def lifetime_stats() -> dict[str, Any]:
 ACHIEVEMENTS = [
     ("first", "First Step", "Clear your first quest", "\u2694\ufe0f", lambda s: s["done"] >= 1),
     ("ten", "Getting Warm", "Clear 10 quests", "\U0001f525", lambda s: s["done"] >= 10),
+    ("twenty", "Twenty Strong", "Clear 20 quests", "\U0001f4aa", lambda s: s["done"] >= 20),
     ("fifty", "Relentless", "Clear 50 quests", "\u26a1", lambda s: s["done"] >= 50),
     ("century", "Century", "Clear 100 quests", "\U0001f3af", lambda s: s["done"] >= 100),
     ("five_hundred", "Veteran", "Clear 500 quests", "\U0001f396\ufe0f", lambda s: s["done"] >= 500),

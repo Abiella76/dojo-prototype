@@ -416,6 +416,20 @@ def expired(task: dict[str, Any], *, now: datetime | None = None) -> bool:
     return left is not None and left < 0
 
 
+def cleared_late(task: dict[str, Any]) -> bool:
+    """Was this quest cleared after its timer ran out?
+
+    Both stamps are already on the row, so the verdict costs no extra query.
+    """
+    at, deadline = task.get("completed_at"), task.get("deadline_at")
+    if not at or not deadline:
+        return False
+    try:
+        return datetime.fromisoformat(at) > datetime.fromisoformat(deadline)
+    except (TypeError, ValueError):
+        return False
+
+
 def set_completed(task_id: int, completed: bool, *, streak: int = 0) -> int:
     """Complete or reopen a task, keeping the XP ledger in step. Returns XP delta."""
     task = get_task(task_id)

@@ -107,8 +107,6 @@ def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_
                 f'<span class="chip chip-timer{" chip-late" if late else ""}" '
                 f'data-deadline="{esc(str(deadline))}">{esc(fmt_left(left))}</span>'
             )
-    elif deadline and task.get("completed"):
-        parts.append('<span class="chip chip-carried">timed</span>')
 
     for tag in task.get("tags") or []:
         parts.append(f'<span class="chip chip-tag">#{esc(tag)}</span>')

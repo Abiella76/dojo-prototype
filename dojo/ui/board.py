@@ -19,7 +19,7 @@ def _rerun() -> None:
 
 def quick_add(day: str, api_key: str | None) -> None:
     with st.form("quick_add", clear_on_submit=True, border=False):
-        cols = st.columns([5, 2.4, 2.2, 1.4])
+        cols = st.columns([4.2, 2.0, 1.9, 1.9, 1.3])
         with cols[0]:
             raw = st.text_input(
                 "New quest", placeholder="accept a quest — e.g. call the dentist tomorrow #health !high",
@@ -43,6 +43,14 @@ def quick_add(day: str, api_key: str | None) -> None:
                      "still clears, but pays nothing.",
             )
         with cols[3]:
+            roster = db.projects()
+            project = st.selectbox(
+                "Project", [None, *roster],
+                format_func=lambda n: "No project" if n is None else n,
+                label_visibility="collapsed",
+                help="Which front this belongs to. Add projects in the sidebar.",
+            )
+        with cols[4]:
             submitted = st.form_submit_button("Accept", type="primary", width="stretch")
 
     smart = "on" if ai.available(api_key) else "off"
@@ -59,7 +67,8 @@ def quick_add(day: str, api_key: str | None) -> None:
         deadline = (datetime.now() + timedelta(hours=int(hours))).isoformat(timespec="seconds")
         task_id = db.add_task(
             day, parsed["text"], priority,
-            due_date=parsed["due_date"], deadline_at=deadline, tags=parsed["tags"],
+            due_date=parsed["due_date"], deadline_at=deadline, project=project,
+            tags=parsed["tags"],
         )
         for step in parsed.get("subtasks", []):
             db.add_task(day, step, priority, parent_id=task_id)
@@ -67,6 +76,8 @@ def quick_add(day: str, api_key: str | None) -> None:
         # keeping current and not only worth clearing.
         gained = db.award_creation(day, task_id)
         bits = [TIER_LABELS.get(priority, priority), config.deadline_label(int(hours))]
+        if project:
+            bits.append(project)
         if parsed["due_date"]:
             bits.append(f"due {parsed['due_date']}")
         if parsed["tags"]:
@@ -86,7 +97,12 @@ def quick_add(day: str, api_key: str | None) -> None:
 
 def filter_bar(tasks: list[dict]) -> list[dict]:
     tags = sorted({t for task in tasks for t in task.get("tags") or []})
-    cols = st.columns([2.2, 2.2, 2.6, 3])
+    roster = db.projects()
+    # Anything labelled but no longer on the roster still needs to be findable.
+    seen = [p for p in sorted({t.get("project") for t in tasks if t.get("project")})
+            if p not in roster]
+    # The status control holds three words and clips if it is squeezed.
+    cols = st.columns([2.5, 1.8, 1.9, 2.1, 2.4])
     with cols[0]:
         status = st.segmented_control(
             "Status", ["All", "Active", "Cleared"], default="All",
@@ -101,6 +117,10 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
         tag = st.selectbox("Tag", ["Any tag", *[f"#{t}" for t in tags]],
                            key="f_tag", label_visibility="collapsed")
     with cols[3]:
+        project = st.selectbox(
+            "Project", ["Any project", *roster, *seen, "No project"],
+            key="f_project", label_visibility="collapsed")
+    with cols[4]:
         query = st.text_input("Search", placeholder="Search quests…",
                               key="f_query", label_visibility="collapsed")
 
@@ -113,6 +133,10 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
         out = [t for t in out if t["priority"] == priority]
     if tag != "Any tag":
         out = [t for t in out if tag.lstrip("#") in (t.get("tags") or [])]
+    if project == "No project":
+        out = [t for t in out if not t.get("project")]
+    elif project != "Any project":
+        out = [t for t in out if t.get("project") == project]
     if query.strip():
         needle = query.strip().lower()
         out = [t for t in out
@@ -168,6 +192,12 @@ def _edit_panel(task: dict) -> None:
         with row[1]:
             current_due = date.fromisoformat(task["due_date"]) if task.get("due_date") else None
             due = st.date_input("Due date", value=current_due, format="YYYY-MM-DD")
+        edit_roster = db.projects()
+        current = task.get("project")
+        options = [None, *edit_roster] + ([current] if current and current not in edit_roster else [])
+        project = st.selectbox(
+            "Project", options, index=options.index(current) if current in options else 0,
+            format_func=lambda n: "No project" if n is None else n)
         tags = st.text_input("Tags", value=" ".join(f"#{t}" for t in task.get("tags") or []),
                              placeholder="#work #urgent")
         clear_due = st.checkbox("No due date", value=task.get("due_date") is None)
@@ -175,18 +205,21 @@ def _edit_panel(task: dict) -> None:
             db.update_task(
                 task["id"], text=text.strip(), priority=priority,
                 due_date=None if clear_due or due is None else due.isoformat(),
+                project=project,
                 tags=[t.lstrip("#") for t in tags.split()],
             )
             st.toast("Quest updated")
             _rerun()
 
 
-def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None:
+def task_card(task: dict, streak: int, api_key: str | None, today: date,
+              roster: list[str] | None = None) -> None:
     subs = db.list_subtasks(task["id"])
     sub_done = sum(1 for s in subs if s["completed"])
 
     with st.container(border=True, key=f"card-task-{task['id']}"):
-        c.quest_header(task, today=today, sub_done=sub_done, sub_total=len(subs))
+        c.quest_header(task, today=today, sub_done=sub_done, sub_total=len(subs),
+                       roster=roster or [])
 
         cols = st.columns([2.1, 1.5, 1.4, 1.6, 1.2, 2.7])
         with cols[0]:

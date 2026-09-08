@@ -156,6 +156,19 @@ def render(mode: str, today: date | None = None) -> None:
     c.heatmap({r["day"]: r["xp"] for r in db.xp_by_day((today - timedelta(days=380)).isoformat())},
               mode, today=today)
 
+    # ── projects ──
+    roster = db.projects()
+    progress = db.project_progress()
+    if roster or any(k != "Unassigned" for k in progress):
+        st.markdown("#### Across your fronts")
+        stalled = [n for n in roster if progress.get(n, {}).get("total", 0) == 0]
+        st.caption(
+            "Cleared out of accepted, per project. "
+            + (f"Nothing on the board for **{', '.join(stalled)}**."
+               if stalled else "Every project has quests on it.")
+        )
+        c.project_board(progress, roster, mode)
+
     # ── achievements ──
     st.markdown("#### Achievements")
     earned = [a for a in gamify.achievements(stats) if a["earned"]]

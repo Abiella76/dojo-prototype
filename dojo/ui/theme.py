@@ -182,6 +182,16 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   border-radius: 3px; background: rgba(0,0,0,.28); font-size: .6rem;
 }}
 .chip-tag {{ text-transform: none; letter-spacing: .02em; font-weight: 600; }}
+/* which front this quest belongs to — colour plus the name, never colour alone */
+.chip-project {{
+  color: var(--pc); border-color: color-mix(in srgb, var(--pc) 45%, transparent);
+  background: color-mix(in srgb, var(--pc) 12%, transparent);
+  text-transform: none; letter-spacing: .03em; font-weight: 700;
+}}
+.chip-project .dot {{
+  width: 7px; height: 7px; border-radius: 50%; background: var(--pc);
+  box-shadow: 0 0 8px var(--pc); flex: none;
+}}
 .chip-overdue {{
   background: rgba(255,61,113,.14); color: #ff6b93;
   border-color: rgba(255,61,113,.45); animation: pulse 1.8s ease-in-out infinite;
@@ -310,6 +320,12 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{ gap: .4rem; }}
 [data-testid="stSidebar"] hr {{ margin: .5rem 0; }}
 .tier-critical, .tier-high, .tier-medium, .tier-low {{ display: none; }}
+
+/* ── sidebar project rows ───────────────────────────────── */
+.proj-row {{ display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; line-height: 1.2; }}
+.proj-row i {{ width: 8px; height: 8px; border-radius: 50%; flex: none; }}
+.proj-row b {{ font-size: .84rem; }}
+.proj-row span {{ width: 100%; padding-left: 1rem; font-size: .7rem; color: var(--text-3); }}
 
 /* ── tabs ───────────────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {{ gap: .3rem; border-bottom: 1px solid var(--border); }}

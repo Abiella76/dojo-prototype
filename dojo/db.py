@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed_at TEXT,
     due_date     TEXT,
     deadline_at  TEXT,
+    project      TEXT,
     tags         TEXT    NOT NULL DEFAULT '[]',
     sort_order   INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL,
@@ -191,7 +192,7 @@ class _DB:
 # to a table that is already there, so a live database needs them added
 # explicitly. Idempotent on both engines and safe to run on every open.
 _ADDED_COLUMNS = {
-    "tasks": {"deadline_at": "TEXT"},
+    "tasks": {"deadline_at": "TEXT", "project": "TEXT"},
 }
 
 
@@ -317,6 +318,7 @@ def add_task(
     notes: str = "",
     due_date: str | None = None,
     deadline_at: str | None = None,
+    project: str | None = None,
     tags: Iterable[str] | None = None,
     parent_id: int | None = None,
     carried_from: str | None = None,
@@ -333,9 +335,9 @@ def add_task(
     ).fetchone()["n"]
     task_id = conn.insert(
         "INSERT INTO tasks(parent_id, day, text, notes, priority, due_date, deadline_at, "
-        "tags, sort_order, created_at, carried_from) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        "project, tags, sort_order, created_at, carried_from) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            parent_id, day, text, notes, priority, due_date, deadline_at,
+            parent_id, day, text, notes, priority, due_date, deadline_at, project,
             json.dumps(sorted({t.strip().lower() for t in (tags or []) if t.strip()})),
             nxt, datetime.now().isoformat(timespec="seconds"), carried_from,
         ),
@@ -367,7 +369,8 @@ def list_subtasks(parent_id: int) -> list[dict[str, Any]]:
 
 
 def update_task(task_id: int, **fields: Any) -> None:
-    allowed = {"text", "notes", "priority", "due_date", "tags", "day", "sort_order"}
+    allowed = {"text", "notes", "priority", "due_date", "deadline_at", "project",
+               "tags", "day", "sort_order"}
     sets, values = [], []
     for key, value in fields.items():
         if key not in allowed:
@@ -651,6 +654,74 @@ def all_tags() -> list[str]:
 
 # ────── backup ──────
 
+# ────── projects ──────
+# Kept as a curated list rather than derived from the tasks that exist, so a
+# company with nothing on the board today still shows up — that absence is the
+# very thing worth seeing when you are trying to move several fronts forward.
+
+PROJECTS_SETTING = "projects"
+
+
+def projects() -> list[str]:
+    raw = get_setting(PROJECTS_SETTING)
+    if not raw:
+        return []
+    try:
+        names = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [str(n) for n in names if str(n).strip()]
+
+
+def set_projects(names: Iterable[str]) -> list[str]:
+    """Replace the roster, trimmed and de-duplicated but order preserved."""
+    seen, kept = set(), []
+    for name in names:
+        clean = str(name).strip()
+        if clean and clean.lower() not in seen:
+            seen.add(clean.lower())
+            kept.append(clean)
+    set_setting(PROJECTS_SETTING, json.dumps(kept))
+    return kept
+
+
+def add_project(name: str) -> list[str]:
+    return set_projects([*projects(), name])
+
+
+def remove_project(name: str) -> list[str]:
+    """Forget a project. Quests keep their label, so nothing is orphaned."""
+    return set_projects([p for p in projects() if p.lower() != str(name).strip().lower()])
+
+
+def project_progress(day: str | None = None) -> dict[str, dict[str, int]]:
+    """Open and cleared counts per project, for every project on the roster.
+
+    One grouped query rather than one per project, and the roster is folded in
+    afterwards so a project with no quests at all still reports zeros.
+    """
+    where = "WHERE parent_id IS NULL" + (" AND day = ?" if day else "")
+    rows = connect().execute(
+        "SELECT project, "
+        "COUNT(*) AS total, "
+        "COALESCE(SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END), 0) AS done "
+        f"FROM tasks {where} GROUP BY project",
+        (day,) if day else (),
+    ).fetchall()
+
+    out: dict[str, dict[str, int]] = {
+        name: {"total": 0, "done": 0, "open": 0} for name in projects()
+    }
+    for row in rows:
+        name = row["project"] or "Unassigned"
+        total, done = int(row["total"]), int(row["done"])
+        bucket = out.setdefault(name, {"total": 0, "done": 0, "open": 0})
+        bucket["total"] += total
+        bucket["done"] += done
+        bucket["open"] += total - done
+    return out
+
+
 def export_state() -> dict[str, Any]:
     conn = connect()
     return {
@@ -672,9 +743,11 @@ def import_state(payload: dict[str, Any]) -> int:
     conn.commit()
 
     if payload.get("version") == 2:
+        # Every column, or a restore quietly drops what it does not list — the
+        # timers were already being lost this way.
         task_cols = ("id", "parent_id", "day", "text", "notes", "priority", "completed",
-                     "completed_at", "due_date", "tags", "sort_order", "created_at",
-                     "carried_from")
+                     "completed_at", "due_date", "deadline_at", "project", "tags",
+                     "sort_order", "created_at", "carried_from")
         xp_cols = ("id", "day", "task_id", "points", "reason", "created_at")
         # Parents must land before the children that reference them.
         tasks = sorted(payload.get("tasks", []), key=lambda t: (t.get("parent_id") is not None,

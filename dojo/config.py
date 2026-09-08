@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Dojo"
-APP_VERSION = "13.1"
+APP_VERSION = "14.0"
 
 # ────── storage ──────
 # Overridable so tests and deployments can point somewhere writable.
@@ -109,6 +109,21 @@ def belt_progress(total_xp: int) -> float:
     floor = BELTS[level - 1][1]
     span = nxt - floor
     return max(0.0, min(1.0, (total_xp - floor) / span)) if span else 1.0
+
+
+# ────── projects ──────
+# Colours come from the validated categorical set, assigned by the project's
+# position on the roster so they stay put as quests come and go. The name is
+# always printed beside the colour, so hue never carries the meaning alone.
+PROJECT_COLORS = ["#8b7bff", "#22d3ee", "#ff8a1f", "#2dd4a0", "#ffd60a", "#ff3d71"]
+
+
+def project_color(name: str, roster: list[str] | None = None) -> str:
+    roster = roster or []
+    try:
+        return PROJECT_COLORS[roster.index(name) % len(PROJECT_COLORS)]
+    except ValueError:
+        return "#7b83a8"          # off the roster: neutral, not a stolen hue
 
 
 # ────── chart palette ──────

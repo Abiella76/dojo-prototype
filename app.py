@@ -141,6 +141,8 @@ streak = lifetime["streak"]
 # quest, accepting one, or a streak simply rolling over at midnight, and this
 # is the one place every path passes through. Claiming records them, so each
 # badge fires exactly once.
+roster = db.projects()
+
 unlocked = gamify.claim_new_achievements(lifetime)
 if unlocked:
     c.achievement_payload(unlocked)
@@ -174,6 +176,34 @@ with st.sidebar:
         f"+{config.SWEEP_BONUS} clearing the log ({config.SWEEP_MIN_TASKS}+ quests)  \n"
         "×1.25 at a 3-day run, ×1.5 at 7+"
     )
+
+    st.divider()
+    st.caption("**Projects**")
+    if roster:
+        progress = db.project_progress()
+        for name in roster:
+            p_stat = progress.get(name, {"open": 0, "done": 0})
+            cols = st.columns([5, 1.2])
+            with cols[0]:
+                colour = config.project_color(name, roster)
+                st.markdown(
+                    f'<div class="proj-row"><i style="background:{colour}"></i>'
+                    f'<b>{name}</b><span>{p_stat["open"]} open · {p_stat["done"]} cleared</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                if st.button("✕", key=f"rmproj_{name}", help=f"Remove {name}"):
+                    db.remove_project(name)
+                    st.rerun()
+    else:
+        st.caption("None yet — add your companies and personal life below.")
+
+    with st.form("add_project", clear_on_submit=True, border=False):
+        new_project = st.text_input("New project", placeholder="Acme Corp",
+                                    label_visibility="collapsed")
+        if st.form_submit_button("Add project", width="stretch") and new_project.strip():
+            db.add_project(new_project)
+            st.rerun()
 
     st.divider()
     st.caption("**Backup**")
@@ -283,7 +313,7 @@ with board_tab:
             if not visible:
                 st.caption("No quests match these filters.")
             for task in sorted(visible, key=lambda t: (t["completed"], t["sort_order"])):
-                board.task_card(task, streak, api_key(), today)
+                board.task_card(task, streak, api_key(), today, roster)
         with right:
             board.coach_panel(
                 [t for t in all_tasks if not t["completed"]],

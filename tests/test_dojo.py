@@ -441,3 +441,56 @@ def test_cleared_late_reads_the_two_stamps():
     untimed = db.add_task(day, "no clock at all", "Low")
     db.set_completed(untimed, True)
     assert db.cleared_late(db.get_task(untimed)) is False   # never late without a timer
+
+
+def test_project_roster_is_trimmed_and_deduplicated():
+    assert db.set_projects(["Acme Corp", "  Beta Ltd  ", "acme corp", "", "Personal"]) == [
+        "Acme Corp", "Beta Ltd", "Personal"]
+    assert db.projects() == ["Acme Corp", "Beta Ltd", "Personal"]
+
+
+def test_a_project_with_no_quests_still_reports():
+    """The whole point: a company you have not touched has to be visible."""
+    db.set_projects(["Acme Corp", "Quiet Co"])
+    db.set_completed(db.add_task(date.today().isoformat(), "ship", "High",
+                                 project="Acme Corp"), True)
+    progress = db.project_progress()
+    assert progress["Acme Corp"] == {"total": 1, "done": 1, "open": 0}
+    assert progress["Quiet Co"] == {"total": 0, "done": 0, "open": 0}
+
+
+def test_unlabelled_quests_group_under_unassigned():
+    db.set_projects(["Acme Corp"])
+    db.add_task(date.today().isoformat(), "stray", "Low")
+    assert db.project_progress()["Unassigned"]["open"] == 1
+
+
+def test_removing_a_project_leaves_its_quests_labelled():
+    """Forgetting a project must not orphan or silently relabel its history."""
+    day = date.today().isoformat()
+    db.set_projects(["Acme Corp"])
+    task_id = db.add_task(day, "still Acme's", "Low", project="Acme Corp")
+    db.remove_project("Acme Corp")
+    assert db.projects() == []
+    assert db.get_task(task_id)["project"] == "Acme Corp"
+    assert db.project_progress()["Acme Corp"]["open"] == 1   # still counted, off-roster
+
+
+def test_a_quest_can_be_reassigned():
+    task_id = db.add_task(date.today().isoformat(), "moving house", "Low", project="Acme Corp")
+    db.update_task(task_id, project="Personal")
+    assert db.get_task(task_id)["project"] == "Personal"
+
+
+def test_backup_round_trip_keeps_project_and_timer():
+    """Both newer columns were being dropped on restore; they must survive."""
+    day = date.today().isoformat()
+    db.set_projects(["Acme Corp"])
+    db.add_task(day, "timed and labelled", "High",
+                project="Acme Corp", deadline_at=_in_hours(6))
+    payload = db.export_state()
+    db.import_state(payload)
+    restored = db.list_tasks(day)[0]
+    assert restored["project"] == "Acme Corp"
+    assert restored["deadline_at"] is not None
+    assert db.projects() == ["Acme Corp"]

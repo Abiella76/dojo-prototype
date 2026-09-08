@@ -17,7 +17,8 @@ from typing import Any, Iterable
 import streamlit as st
 
 from .. import db
-from ..config import PRIORITY_COLORS, TIER_LABELS, TIER_RANKS, sequential
+from ..config import (PRIORITY_COLORS, TIER_LABELS, TIER_RANKS, project_color,
+                      sequential)
 from .theme import css_vars, tokens
 
 
@@ -74,7 +75,8 @@ def fmt_left(hours: float) -> str:
     return f"{sign}{m}m" if m else f"{sign}{total % 60}s"
 
 
-def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_total: int = 0) -> str:
+def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0,
+               sub_total: int = 0, roster: list[str] | None = None) -> str:
     today = today or date.today()
     parts = [tier_chip(task.get("priority", "Medium"))]
 
@@ -107,6 +109,14 @@ def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_
                 f'<span class="chip chip-timer{" chip-late" if late else ""}" '
                 f'data-deadline="{esc(str(deadline))}">{esc(fmt_left(left))}</span>'
             )
+
+    project = task.get("project")
+    if project:
+        colour = project_color(project, roster or [])
+        parts.append(
+            f'<span class="chip chip-project" style="--pc:{colour}">'
+            f'<i class="dot"></i>{esc(project)}</span>'
+        )
 
     for tag in task.get("tags") or []:
         parts.append(f'<span class="chip chip-tag">#{esc(tag)}</span>')
@@ -771,3 +781,48 @@ def achievement_payload(items: list[dict[str, Any]]) -> None:
     )
     st.markdown(f'<div class="badge-payloads" hidden>{rows}</div>',
                 unsafe_allow_html=True)
+
+
+def project_board(progress: dict[str, dict[str, int]], roster: list[str], mode: str) -> None:
+    """Every front, side by side: how much is cleared and how much is still open.
+
+    Rows rather than a chart. The question is "is anything stalled?", which is
+    read by scanning a short list, and a project with nothing on it has to be
+    as visible as a busy one — a bar of length zero says that plainly.
+    """
+    names = [*roster] + sorted(n for n in progress if n not in roster)
+    if not names:
+        return
+
+    rows = []
+    widest = max((progress.get(n, {}).get("total", 0) for n in names), default=0) or 1
+    for name in names:
+        stat = progress.get(name, {"total": 0, "done": 0, "open": 0})
+        colour = project_color(name, roster)
+        share = stat["done"] / stat["total"] if stat["total"] else 0
+        scale = stat["total"] / widest
+        rows.append(f"""
+<div class="prow">
+  <div class="pname"><i style="background:{colour}"></i>{esc(name)}</div>
+  <div class="ptrack">
+    <div class="pbar" style="width:{scale * 100:.1f}%">
+      <span style="width:{share * 100:.1f}%;background:{colour}"></span>
+    </div>
+  </div>
+  <div class="pnum">{"—" if not stat["total"] else f"{stat['done']}/{stat['total']}"}</div>
+</div>""")
+
+    css = """
+.prow { display: grid; grid-template-columns: 150px 1fr 58px; align-items: center;
+        gap: 12px; padding: 7px 0; }
+.pname { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 600;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pname i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.ptrack { height: 10px; border-radius: 999px; background: var(--surface-3);
+          border: 1px solid var(--border); overflow: hidden; }
+.pbar { height: 100%; min-width: 2px; background: var(--surface-2); position: relative; }
+.pbar span { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
+.pnum { text-align: right; font-family: var(--font-display); font-size: .76rem;
+        color: var(--text-2); font-variant-numeric: tabular-nums; }
+"""
+    _frame("".join(rows), mode, height=len(names) * 32 + 14, extra_css=css)

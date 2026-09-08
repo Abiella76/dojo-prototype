@@ -426,3 +426,18 @@ def test_deadline_column_survives_an_existing_database():
     """The column is added to databases that predate it, not just new ones."""
     row = db.get_task(db.add_task(date.today().isoformat(), "has the column", "Low"))
     assert "deadline_at" in row
+
+
+def test_cleared_late_reads_the_two_stamps():
+    day = date.today().isoformat()
+    beat = db.add_task(day, "beat the clock", "Low", deadline_at=_in_hours(4))
+    db.set_completed(beat, True)
+    assert db.cleared_late(db.get_task(beat)) is False
+
+    missed = db.add_task(day, "missed it", "Low", deadline_at=_in_hours(-4))
+    db.set_completed(missed, True)
+    assert db.cleared_late(db.get_task(missed)) is True
+
+    untimed = db.add_task(day, "no clock at all", "Low")
+    db.set_completed(untimed, True)
+    assert db.cleared_late(db.get_task(untimed)) is False   # never late without a timer

@@ -258,6 +258,14 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
                         f"<span class='reward'>▸ {preview['total']} XP</span>",
                         unsafe_allow_html=True,
                     )
+        else:
+            with cols[5]:
+                late = db.cleared_late(task)
+                st.markdown(
+                    f'<span class="cleared-badge{" cleared-late" if late else ""}">'
+                    f'<b>✓</b>{"CLEARED LATE" if late else "CLEARED"}</span>',
+                    unsafe_allow_html=True,
+                )
 
         if task.get("notes"):
             c.note_block(task["notes"])

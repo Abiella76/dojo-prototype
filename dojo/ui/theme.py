@@ -208,6 +208,43 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   color: var(--accent); letter-spacing: .04em; white-space: nowrap;
 }}
 .reward-void {{ color: var(--text-3) !important; text-decoration: line-through; }}
+
+/* ── cleared badge ──────────────────────────────────────
+   Fills the space a finished quest's reward figure leaves behind, so a cleared
+   card reads as won rather than merely struck through. */
+.cleared-badge {{
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .3rem .7rem; border-radius: 999px;
+  font-family: var(--font-display); font-size: .64rem; font-weight: 800;
+  letter-spacing: .16em; white-space: nowrap;
+  color: #05140f;
+  background: linear-gradient(135deg, #2dd4a0, #22d3ee 55%, #8b7bff);
+  border: 1px solid rgba(45,212,160,.65);
+  box-shadow: 0 0 18px rgba(45,212,160,.38), inset 0 1px 0 rgba(255,255,255,.42);
+}}
+.cleared-badge b {{
+  display: inline-grid; place-items: center; width: 14px; height: 14px;
+  border-radius: 50%; background: rgba(0,0,0,.26); color: #eafff7; font-size: .6rem;
+}}
+/* the shine: a highlight that sweeps across every few seconds */
+.cleared-badge::after {{
+  content: ""; position: absolute; top: 0; bottom: 0; width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+  transform: skewX(-18deg);
+  animation: sheen 3.6s ease-in-out infinite;
+}}
+@keyframes sheen {{
+  0%, 62% {{ left: -60%; }}
+  92%, 100% {{ left: 130%; }}
+}}
+/* cleared after the timer: it still counts, it just does not glitter */
+.cleared-badge.cleared-late {{
+  color: var(--text-2); background: transparent;
+  border: 1px dashed var(--border-lit); box-shadow: none;
+}}
+.cleared-badge.cleared-late b {{ background: transparent; color: var(--text-3); }}
+.cleared-badge.cleared-late::after {{ display: none; }}
 .objectives {{ font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums;
                letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }}
 
@@ -432,6 +469,7 @@ h3::before {{
      registers. A still one just sits there, so give it a card to sit on. */
   /* Same bargain as the burst: the badge is script-removed, so it can show —
      it simply arrives without motion. */
+  .cleared-badge::after {{ display: none !important; }}
   .badge-card {{ animation: none !important; }}
   .badge-crest {{ animation: none !important; }}
   .badge-scrim {{ animation: none !important; opacity: 1; }}

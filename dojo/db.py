@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     completed    INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     due_date     TEXT,
+    deadline_at  TEXT,
     tags         TEXT    NOT NULL DEFAULT '[]',
     sort_order   INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL,
@@ -186,6 +187,28 @@ class _DB:
         self.commit()
 
 
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS does nothing
+# to a table that is already there, so a live database needs them added
+# explicitly. Idempotent on both engines and safe to run on every open.
+_ADDED_COLUMNS = {
+    "tasks": {"deadline_at": "TEXT"},
+}
+
+
+def _ensure_columns(db: _DB) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        if db.is_pg:
+            for name, decl in columns.items():
+                db.raw.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {decl}")
+        else:
+            # SQLite has no ADD COLUMN IF NOT EXISTS; ask what is there first.
+            have = {r["name"] for r in db.raw.execute(f"PRAGMA table_info({table})").fetchall()}
+            for name, decl in columns.items():
+                if name not in have:
+                    db.raw.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    db.commit()
+
+
 def _open(url: str | None, path: Path | str | None) -> _DB:
     if _is_pg(url):
         import psycopg
@@ -205,6 +228,7 @@ def _open(url: str | None, path: Path | str | None) -> _DB:
             if statement.strip():
                 raw.execute(statement)
         db.commit()
+        _ensure_columns(db)
         return db
 
     target = Path(path or config.DB_PATH)
@@ -214,7 +238,9 @@ def _open(url: str | None, path: Path | str | None) -> _DB:
     raw.execute("PRAGMA foreign_keys = ON")
     raw.executescript(_TABLES.format(pk="INTEGER PRIMARY KEY AUTOINCREMENT"))
     raw.commit()
-    return _DB(raw, False)
+    db = _DB(raw, False)
+    _ensure_columns(db)
+    return db
 
 
 def connect(path: Path | str | None = None, url: str | None = None) -> _DB:
@@ -290,6 +316,7 @@ def add_task(
     *,
     notes: str = "",
     due_date: str | None = None,
+    deadline_at: str | None = None,
     tags: Iterable[str] | None = None,
     parent_id: int | None = None,
     carried_from: str | None = None,
@@ -305,10 +332,10 @@ def add_task(
         (day, parent_id),
     ).fetchone()["n"]
     task_id = conn.insert(
-        "INSERT INTO tasks(parent_id, day, text, notes, priority, due_date, tags, "
-        "sort_order, created_at, carried_from) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO tasks(parent_id, day, text, notes, priority, due_date, deadline_at, "
+        "tags, sort_order, created_at, carried_from) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (
-            parent_id, day, text, notes, priority, due_date,
+            parent_id, day, text, notes, priority, due_date, deadline_at,
             json.dumps(sorted({t.strip().lower() for t in (tags or []) if t.strip()})),
             nxt, datetime.now().isoformat(timespec="seconds"), carried_from,
         ),
@@ -371,6 +398,24 @@ def delete_task(task_id: int) -> None:
     _sync_sweep_bonus(task["day"])
 
 
+def deadline_left(task: dict[str, Any], *, now: datetime | None = None) -> float | None:
+    """Hours until the quest's timer runs out. Negative once it has. None if untimed."""
+    raw = task.get("deadline_at")
+    if not raw:
+        return None
+    try:
+        deadline = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return ((deadline - (now or datetime.now())).total_seconds()) / 3600.0
+
+
+def expired(task: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """True only for a quest whose timer has run out. Untimed quests never expire."""
+    left = deadline_left(task, now=now)
+    return left is not None and left < 0
+
+
 def set_completed(task_id: int, completed: bool, *, streak: int = 0) -> int:
     """Complete or reopen a task, keeping the XP ledger in step. Returns XP delta."""
     task = get_task(task_id)
@@ -387,7 +432,9 @@ def set_completed(task_id: int, completed: bool, *, streak: int = 0) -> int:
         )
         conn.commit()
         # Subtasks are checklist steps: the parent task carries the points.
-        if task["parent_id"] is None:
+        # A quest cleared after its timer ran out still clears — it just pays
+        # nothing. That is the whole point of putting a clock on it.
+        if task["parent_id"] is None and not expired(task, now=now):
             points = int(round(config.BASE_XP[task["priority"]] * config.streak_multiplier(streak)))
             _log_xp(task["day"], task_id, points, f"{task['priority']} task")
             due = task.get("due_date")

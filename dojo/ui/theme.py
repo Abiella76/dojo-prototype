@@ -188,6 +188,16 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 }}
 @keyframes pulse {{ 50% {{ opacity: .55; }} }}
 .chip-carried {{ background: transparent; color: var(--text-3); border-style: dashed; }}
+/* the quest clock: cool while there is room, alarm once it has run out */
+.chip-timer {{
+  font-family: var(--font-display); font-variant-numeric: tabular-nums;
+  background: rgba(34,211,238,.10); color: var(--accent-2);
+  border-color: rgba(34,211,238,.42); letter-spacing: .06em;
+}}
+.chip-timer.chip-late {{
+  background: rgba(255,61,113,.16); color: #ff6b93;
+  border-color: rgba(255,61,113,.55); animation: pulse 1.8s ease-in-out infinite;
+}}
 .note-body {{
   font-size: .87rem; color: var(--text-2); background: var(--surface-3);
   border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0;
@@ -197,6 +207,7 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
   font-family: var(--font-display); font-size: .74rem; font-weight: 600;
   color: var(--accent); letter-spacing: .04em; white-space: nowrap;
 }}
+.reward-void {{ color: var(--text-3) !important; text-decoration: line-through; }}
 .objectives {{ font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums;
                letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }}
 

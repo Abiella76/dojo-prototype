@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -376,3 +376,53 @@ def test_a_badge_added_later_still_reaches_someone_who_already_qualifies():
     seen.discard("twenty")                             # as if the badge shipped afterwards
     db.set_setting(gamify.SEEN_SETTING, json.dumps(sorted(seen)))
     assert "twenty" in {a["key"] for a in gamify.claim_new_achievements()}
+
+
+def _in_hours(h: float) -> str:
+    return (datetime.now() + timedelta(hours=h)).isoformat(timespec="seconds")
+
+
+def test_clearing_inside_the_timer_pays_in_full():
+    task_id = db.add_task(date.today().isoformat(), "beat the clock", "Critical",
+                          deadline_at=_in_hours(4))
+    assert db.set_completed(task_id, True) == config.BASE_XP["Critical"]
+
+
+def test_clearing_after_the_timer_clears_but_pays_nothing():
+    task_id = db.add_task(date.today().isoformat(), "missed it", "Critical",
+                          deadline_at=_in_hours(-1))
+    assert db.set_completed(task_id, True) == 0
+    assert db.get_task(task_id)["completed"] is True      # still cleared
+    assert db.total_xp() == 0
+
+
+def test_an_expired_quest_forfeits_the_early_bonus_too():
+    """Late is late: no base, no streak multiplier, no due-date bonus."""
+    today = date.today().isoformat()
+    task_id = db.add_task(today, "late but due tomorrow", "High",
+                          due_date=(date.today() + timedelta(days=1)).isoformat(),
+                          deadline_at=_in_hours(-2))
+    assert db.set_completed(task_id, True, streak=7) == 0
+
+
+def test_a_quest_with_no_timer_is_unaffected():
+    """Everything created before timers existed still pays as it always did."""
+    task_id = db.add_task(date.today().isoformat(), "untimed", "Medium")
+    assert db.deadline_left(db.get_task(task_id)) is None
+    assert db.expired(db.get_task(task_id)) is False
+    assert db.set_completed(task_id, True) == config.BASE_XP["Medium"]
+
+
+def test_deadline_left_counts_down_and_goes_negative():
+    ahead = {"deadline_at": _in_hours(3)}
+    behind = {"deadline_at": _in_hours(-3)}
+    # tolerant either side: the stored stamp is truncated to whole seconds
+    assert 2.9 < db.deadline_left(ahead) < 3.1
+    assert -3.1 < db.deadline_left(behind) < -2.9
+    assert db.expired(behind) and not db.expired(ahead)
+
+
+def test_deadline_column_survives_an_existing_database():
+    """The column is added to databases that predate it, not just new ones."""
+    row = db.get_task(db.add_task(date.today().isoformat(), "has the column", "Low"))
+    assert "deadline_at" in row

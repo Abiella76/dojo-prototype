@@ -16,6 +16,7 @@ from typing import Any, Iterable
 
 import streamlit as st
 
+from .. import db
 from ..config import PRIORITY_COLORS, TIER_LABELS, TIER_RANKS, sequential
 from .theme import css_vars, tokens
 
@@ -63,6 +64,16 @@ def tier_chip(priority: str) -> str:
 priority_chip = tier_chip  # older name, same badge
 
 
+def fmt_left(hours: float) -> str:
+    """A countdown people can read at a glance: 18h 04m, 47m, -3h 12m."""
+    sign = "-" if hours < 0 else ""
+    total = int(abs(hours) * 3600)
+    h, m = total // 3600, (total % 3600) // 60
+    if h >= 1:
+        return f"{sign}{h}h {m:02d}m"
+    return f"{sign}{m}m" if m else f"{sign}{total % 60}s"
+
+
 def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_total: int = 0) -> str:
     today = today or date.today()
     parts = [tier_chip(task.get("priority", "Medium"))]
@@ -83,6 +94,21 @@ def quest_meta(task: dict, *, today: date | None = None, sub_done: int = 0, sub_
             parts.append(f'<span class="{cls}">{esc(label)}</span>')
         except ValueError:
             pass
+
+    # The countdown. Rendered with the deadline as data and a server-computed
+    # fallback string: the injected script retimes it every second, and if that
+    # script never installs the chip still shows the figure it had on render.
+    deadline = task.get("deadline_at")
+    if deadline and not task.get("completed"):
+        left = db.deadline_left(task)
+        if left is not None:
+            late = left < 0
+            parts.append(
+                f'<span class="chip chip-timer{" chip-late" if late else ""}" '
+                f'data-deadline="{esc(str(deadline))}">{esc(fmt_left(left))}</span>'
+            )
+    elif deadline and task.get("completed"):
+        parts.append('<span class="chip chip-carried">timed</span>')
 
     for tag in task.get("tags") or []:
         parts.append(f'<span class="chip chip-tag">#{esc(tag)}</span>')
@@ -591,6 +617,32 @@ _INSTANT_JS = r"""
     creationReward(form);
   }, true);
 
+  // ── quest timers ─────────────────────────────────────────────────────
+  // Retimed in the browser, so a ticking countdown costs no server round
+  // trips. The server already rendered a correct figure; this keeps it live.
+  function fmtLeft(ms) {
+    var sign = ms < 0 ? '-' : '', t = Math.floor(Math.abs(ms) / 1000);
+    var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+    if (h >= 1) return sign + h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+    if (m >= 1) return sign + m + 'm';
+    return sign + (t % 60) + 's';
+  }
+
+  function tickTimers() {
+    var nodes = D.querySelectorAll('.chip-timer[data-deadline]');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i], at = Date.parse(n.getAttribute('data-deadline'));
+      if (isNaN(at)) continue;
+      var ms = at - Date.now(), text = fmtLeft(ms);
+      if (n.textContent !== text) n.textContent = text;   // only touch it when it changed
+      var late = ms < 0;
+      if (late !== n.classList.contains('chip-late')) n.classList.toggle('chip-late', late);
+    }
+  }
+
+  W.setInterval(tickTimers, 1000);
+  tickTimers();
+
   // ── achievement badges ───────────────────────────────────────────────
   // The server marks new badges up as data; this builds and, crucially,
   // removes them. Queued rather than stacked: two at once would overlap.
@@ -643,6 +695,7 @@ _INSTANT_JS = r"""
   try {
     new MutationObserver(function (muts) {
       scanBadges();
+      tickTimers();
       if (!W.__dojoBurstAt || Date.now() - W.__dojoBurstAt > 8000) return;
       for (var i = 0; i < muts.length; i++) {
         var added = muts[i].addedNodes;

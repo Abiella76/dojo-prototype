@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Dojo"
-APP_VERSION = "12.2"
+APP_VERSION = "13.0"
 
 # ────── storage ──────
 # Overridable so tests and deployments can point somewhere writable.
@@ -37,6 +37,20 @@ PRIORITY_GLYPHS = {"Critical": "▲▲", "High": "▲", "Medium": "■", "Low": 
 
 # ────── experience points ──────
 BASE_XP = {"Critical": 50, "High": 30, "Medium": 20, "Low": 10}
+
+# ────── quest timers ──────
+# A quest is accepted against a clock. Cleared inside it, it pays; cleared after
+# it, it still clears but pays nothing. Hours rather than dates: the unit people
+# actually think in when committing to something today.
+DEADLINE_CHOICES = [1, 4, 8, 24, 48, 72]
+
+
+def deadline_label(hours: int) -> str:
+    if hours < 24:
+        return f"{hours} hour" + ("" if hours == 1 else "s")
+    days = hours // 24
+    return f"{days} day" + ("" if days == 1 else "s")
+
 
 CREATE_XP = 10        # accepting a quest — planning is work too
 CREATE_REASON = "Quest accepted"   # ledger label; also how the row is protected

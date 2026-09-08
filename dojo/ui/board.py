@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import streamlit as st
 
-from .. import ai, db, gamify
+from .. import ai, config, db, gamify
 from ..config import PRIORITIES, TIER_LABELS, belt_for_xp
 from . import components as c
 
@@ -19,7 +19,7 @@ def _rerun() -> None:
 
 def quick_add(day: str, api_key: str | None) -> None:
     with st.form("quick_add", clear_on_submit=True, border=False):
-        cols = st.columns([6, 3, 1.4])
+        cols = st.columns([5, 2.4, 2.2, 1.4])
         with cols[0]:
             raw = st.text_input(
                 "New quest", placeholder="accept a quest — e.g. call the dentist tomorrow #health !high",
@@ -33,6 +33,16 @@ def quick_add(day: str, api_key: str | None) -> None:
                 help="Auto reads !high / !critical from the text, or infers a tier.",
             )
         with cols[2]:
+            # No default: committing to a clock is the point, so the quest is
+            # not accepted until one is chosen.
+            hours = st.selectbox(
+                "Timer", [None, *config.DEADLINE_CHOICES],
+                format_func=lambda h: "Set a timer…" if h is None else f"⏱ {config.deadline_label(h)}",
+                label_visibility="collapsed",
+                help="Clear it inside this window to earn the points. After that it "
+                     "still clears, but pays nothing.",
+            )
+        with cols[3]:
             submitted = st.form_submit_button("Accept", type="primary", width="stretch")
 
     smart = "on" if ai.available(api_key) else "off"
@@ -41,19 +51,22 @@ def quick_add(day: str, api_key: str | None) -> None:
         f"AI assist: **{smart}**."
     )
 
-    if submitted and raw.strip():
+    if submitted and raw.strip() and hours is None:
+        st.warning("Set a timer before accepting the quest.")
+    elif submitted and raw.strip():
         parsed = ai.parse_task(raw, key=api_key)
         priority = choice if choice != "Auto" else (parsed["priority"] or "Medium")
+        deadline = (datetime.now() + timedelta(hours=int(hours))).isoformat(timespec="seconds")
         task_id = db.add_task(
             day, parsed["text"], priority,
-            due_date=parsed["due_date"], tags=parsed["tags"],
+            due_date=parsed["due_date"], deadline_at=deadline, tags=parsed["tags"],
         )
         for step in parsed.get("subtasks", []):
             db.add_task(day, step, priority, parent_id=task_id)
         # Planning is work: accepting a quest pays, so the board is worth
         # keeping current and not only worth clearing.
         gained = db.award_creation(day, task_id)
-        bits = [TIER_LABELS.get(priority, priority)]
+        bits = [TIER_LABELS.get(priority, priority), config.deadline_label(int(hours))]
         if parsed["due_date"]:
             bits.append(f"due {parsed['due_date']}")
         if parsed["tags"]:
@@ -193,8 +206,13 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
                     belt, level, _, _ = belt_for_xp(db.total_xp())
                     # Handed to the next run so the popup animates on a fresh
                     # page rather than being wiped by the rerun.
-                    st.session_state["xp_gain"] = gained
-                    st.session_state["xp_note"] = TIER_LABELS.get(task["priority"], "")
+                    if gained:
+                        st.session_state["xp_gain"] = gained
+                        st.session_state["xp_note"] = TIER_LABELS.get(task["priority"], "")
+                    else:
+                        # Queued, not shown here: the rerun below would discard a
+                        # toast raised in this run before it ever painted.
+                        st.session_state["late_clear"] = True
                     if level > before_level:
                         st.session_state["belt_up"] = (belt, level)
                     _rerun()
@@ -226,13 +244,20 @@ def task_card(task: dict, streak: int, api_key: str | None, today: date) -> None
                     _rerun()
 
         if not task["completed"]:
-            preview = gamify.xp_preview(task["priority"], streak,
-                                        due_date=task.get("due_date"), today=today)
             with cols[5]:
-                st.markdown(
-                    f"<span class='reward'>▸ {preview['total']} XP</span>",
-                    unsafe_allow_html=True,
-                )
+                if db.expired(task):
+                    # No digits here on purpose: the click-time burst reads this
+                    # figure off the card, so an expired quest shows nothing to
+                    # promise and nothing to celebrate.
+                    st.markdown("<span class='reward reward-void'>▸ no reward</span>",
+                                unsafe_allow_html=True)
+                else:
+                    preview = gamify.xp_preview(task["priority"], streak,
+                                                due_date=task.get("due_date"), today=today)
+                    st.markdown(
+                        f"<span class='reward'>▸ {preview['total']} XP</span>",
+                        unsafe_allow_html=True,
+                    )
 
         if task.get("notes"):
             c.note_block(task["notes"])

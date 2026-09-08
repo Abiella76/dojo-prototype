@@ -84,6 +84,8 @@ from dojo.ui import components as c  # noqa: E402
 xp_gain = st.session_state.pop("xp_gain", None)
 xp_note = st.session_state.pop("xp_note", "")
 promotion = st.session_state.pop("belt_up", None)
+if st.session_state.pop("late_clear", False):
+    st.toast("Cleared past its timer — no points this time.", icon="\u23f1\ufe0f")
 
 if xp_gain is not None:
     c.reward_burst(xp_gain, xp_note)

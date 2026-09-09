@@ -93,6 +93,40 @@ def quick_add(day: str, api_key: str | None) -> None:
         st.warning("Nothing to accept — write a quest first.")
 
 
+# ────── ordering ──────
+
+SORTS = ["Order added", "Time left", "Difficulty"]
+
+
+def sort_tasks(tasks: list[dict], how: str) -> list[dict]:
+    """Order the board. Cleared quests always sink to the bottom.
+
+    "Time left" answers "what is about to run out?", so quests still on the
+    clock lead, soonest first. Expired ones follow — they still need doing, but
+    they are no longer the thing you can save by acting now, and a pile of them
+    would otherwise bury the ones you can. Untimed quests have no urgency to
+    read, so they sit after both.
+    """
+    if how == "Time left":
+        def key(task: dict) -> tuple:
+            if task["completed"]:
+                return (3, 0.0, task["sort_order"])
+            left = db.deadline_left(task)
+            if left is None:
+                return (2, 0.0, task["sort_order"])
+            if left < 0:
+                return (1, -left, task["sort_order"])   # most recently expired first
+            return (0, left, task["sort_order"])        # closest to running out first
+    elif how == "Difficulty":
+        rank = {p: i for i, p in enumerate(PRIORITIES)}
+        def key(task: dict) -> tuple:
+            return (task["completed"], rank.get(task["priority"], 99), task["sort_order"])
+    else:
+        def key(task: dict) -> tuple:
+            return (task["completed"], task["sort_order"])
+    return sorted(tasks, key=key)
+
+
 # ────── filters ──────
 
 def filter_bar(tasks: list[dict]) -> list[dict]:
@@ -102,7 +136,7 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
     seen = [p for p in sorted({t.get("project") for t in tasks if t.get("project")})
             if p not in roster]
     # The status control holds three words and clips if it is squeezed.
-    cols = st.columns([2.5, 1.8, 1.9, 2.1, 2.4])
+    cols = st.columns([2.3, 1.6, 1.6, 1.9, 2.2, 1.9])
     with cols[0]:
         status = st.segmented_control(
             "Status", ["All", "Active", "Cleared"], default="All",
@@ -123,6 +157,13 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
     with cols[4]:
         query = st.text_input("Search", placeholder="Search quests…",
                               key="f_query", label_visibility="collapsed")
+    with cols[5]:
+        order = st.selectbox(
+            "Sort", SORTS, key="f_sort", label_visibility="collapsed",
+            format_func=lambda s: {"Order added": "↕ Order added",
+                                   "Time left": "⏱ Time left",
+                                   "Difficulty": "▲ Difficulty"}[s],
+            help="Time left puts the quests closest to running out at the top.")
 
     out = tasks
     if status == "Active":
@@ -141,7 +182,7 @@ def filter_bar(tasks: list[dict]) -> list[dict]:
         needle = query.strip().lower()
         out = [t for t in out
                if needle in t["text"].lower() or needle in (t.get("notes") or "").lower()]
-    return out
+    return sort_tasks(out, order)
 
 
 # ────── one task card ──────

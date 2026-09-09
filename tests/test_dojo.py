@@ -12,6 +12,7 @@ import pytest
 os.environ["DOJO_DB"] = os.path.join(tempfile.mkdtemp(), "test.db")
 
 from dojo import config, db, gamify, nlp  # noqa: E402
+from dojo.ui import board  # noqa: E402
 
 # Every test runs twice: once on SQLite, once on Postgres. The Postgres pass
 # skips unless DOJO_TEST_PG_URL points at a throwaway database — CI supplies
@@ -494,3 +495,48 @@ def test_backup_round_trip_keeps_project_and_timer():
     assert restored["project"] == "Acme Corp"
     assert restored["deadline_at"] is not None
     assert db.projects() == ["Acme Corp"]
+
+
+def _timed(hours: float | None, *, done: bool = False, order: int = 0,
+           priority: str = "Medium", text: str = "q") -> dict:
+    return {"text": text, "completed": done, "sort_order": order, "priority": priority,
+            "deadline_at": None if hours is None else _in_hours(hours)}
+
+
+def test_time_left_sort_puts_the_nearest_deadline_first():
+    tasks = [_timed(20, text="later"), _timed(1, text="urgent"), _timed(6, text="soon")]
+    assert [t["text"] for t in board.sort_tasks(tasks, "Time left")] == ["urgent", "soon", "later"]
+
+
+def test_time_left_sort_ranks_live_then_expired_then_untimed():
+    """Expired quests still need doing, but they are not what is about to run
+    out — they must not bury the ones still savable."""
+    tasks = [_timed(None, text="untimed"), _timed(-2, text="expired"),
+             _timed(5, text="live")]
+    assert [t["text"] for t in board.sort_tasks(tasks, "Time left")] == [
+        "live", "expired", "untimed"]
+
+
+def test_expired_quests_are_ordered_most_recent_first():
+    tasks = [_timed(-30, text="long gone"), _timed(-1, text="just missed")]
+    assert [t["text"] for t in board.sort_tasks(tasks, "Time left")] == [
+        "just missed", "long gone"]
+
+
+def test_cleared_quests_sink_under_every_sort():
+    tasks = [_timed(1, done=True, text="done but urgent"), _timed(40, text="open")]
+    for how in board.SORTS:
+        assert [t["text"] for t in board.sort_tasks(tasks, how)][-1] == "done but urgent"
+
+
+def test_difficulty_sort_leads_with_boss():
+    tasks = [_timed(9, priority="Low", text="minor"), _timed(9, priority="Critical", text="boss"),
+             _timed(9, priority="High", text="elite")]
+    assert [t["text"] for t in board.sort_tasks(tasks, "Difficulty")] == ["boss", "elite", "minor"]
+
+
+def test_default_sort_keeps_the_order_they_were_added():
+    tasks = [_timed(1, order=2, text="third"), _timed(50, order=0, text="first"),
+             _timed(9, order=1, text="second")]
+    assert [t["text"] for t in board.sort_tasks(tasks, "Order added")] == [
+        "first", "second", "third"]

@@ -312,7 +312,8 @@ with board_tab:
         with left:
             if not visible:
                 st.caption("No quests match these filters.")
-            for task in sorted(visible, key=lambda t: (t["completed"], t["sort_order"])):
+            # already ordered by the filter bar, which owns the sort control
+            for task in visible:
                 board.task_card(task, streak, api_key(), today, roster)
         with right:
             board.coach_panel(

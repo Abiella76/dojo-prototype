@@ -150,6 +150,44 @@ def render(mode: str, today: date | None = None) -> None:
         )
         st.altair_chart(_chart_config(mix, mode), width="stretch")
 
+    # ── score per day ──
+    st.markdown("#### Score per day")
+    records = db.score_records()
+    today_xp = db.xp_for_day(today.isoformat())
+    c.scoreboard(records, today_xp)
+
+    avg_in_range = float(frame["xp"].mean()) if len(frame) else 0.0
+    peak = frame.loc[frame["xp"].idxmax()] if len(frame) and frame["xp"].max() > 0 else None
+
+    bars = alt.Chart(frame).mark_bar(size=6, cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("date:T", title=None),
+        y=alt.Y("xp:Q", title="XP"),
+        color=alt.value(series),
+        tooltip=[alt.Tooltip("day:N", title="Day"), alt.Tooltip("xp:Q", title="XP")],
+    )
+    # A reference line reads as "is today above or below par?" at a glance,
+    # which a column of bars alone does not answer.
+    ink = tokens(mode)
+    rule = alt.Chart(pd.DataFrame({"avg": [avg_in_range]})).mark_rule(
+        strokeDash=[4, 4], color=ink["text_3"], strokeWidth=1
+    ).encode(y="avg:Q")
+    layers = [bars, rule]
+    if peak is not None:
+        # The best day in view is direct-labelled; every other bar stays bare.
+        best_frame = pd.DataFrame([{"date": peak["date"], "xp": peak["xp"],
+                                    "label": f"{int(peak['xp'])}"}])
+        layers.append(
+            alt.Chart(best_frame).mark_text(dy=-8, fontSize=11, fontWeight=700,
+                                            color=ink["text"])
+            .encode(x="date:T", y="xp:Q", text="label:N")
+        )
+    st.caption(
+        f"Daily XP over the last {label} · dashed line is this range's average "
+        f"({avg_in_range:.0f} XP/day)"
+    )
+    st.altair_chart(_chart_config(alt.layer(*layers).properties(height=180), mode),
+                    width="stretch")
+
     # ── streak calendar ──
     st.markdown("#### Consistency")
     st.caption(f"Daily XP over the last 52 weeks · current streak {stats['streak']} days")

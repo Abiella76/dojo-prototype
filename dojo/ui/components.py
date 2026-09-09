@@ -826,3 +826,30 @@ def project_board(progress: dict[str, dict[str, int]], roster: list[str], mode: 
         color: var(--text-2); font-variant-numeric: tabular-nums; }
 """
     _frame("".join(rows), mode, height=len(names) * 32 + 14, extra_css=css)
+
+
+def scoreboard(records: dict[str, Any], today_xp: int) -> None:
+    """Arcade readout: the record, today against it, and the daily average.
+
+    Inline markup rather than a component frame — three numbers do not need an
+    isolated document, and this way it costs nothing to render.
+    """
+    best = records["best_xp"]
+    beaten = today_xp >= best and today_xp > 0
+    share = f"{today_xp / best:.0%} of your best" if best else "first points on the board"
+    when = records["best_day"] or "—"
+    days = records["scoring_days"]
+
+    cells = [
+        ("HIGH SCORE", f"{best:,}", f"set {when}" if best else "not set yet", "hs-best"),
+        ("TODAY", f"{today_xp:,}", "NEW RECORD" if beaten else share,
+         "hs-today" + (" hs-record" if beaten else "")),
+        ("DAILY AVERAGE", f"{records['average']:,}",
+         f"over {days} scoring day{'' if days == 1 else 's'}", "hs-avg"),
+    ]
+    body = "".join(
+        f'<div class="hs-cell {cls}"><span class="hs-label">{label}</span>'
+        f'<b class="hs-value">{value}</b><span class="hs-note">{esc(note)}</span></div>'
+        for label, value, note, cls in cells
+    )
+    st.markdown(f'<div class="hs-row">{body}</div>', unsafe_allow_html=True)

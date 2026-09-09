@@ -321,6 +321,37 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 [data-testid="stSidebar"] hr {{ margin: .5rem 0; }}
 .tier-critical, .tier-high, .tier-medium, .tier-low {{ display: none; }}
 
+/* ── high-score row ─────────────────────────────────────── */
+.hs-row {{
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: .2rem 0 .4rem;
+}}
+.hs-cell {{
+  padding: .8rem 1rem; border-radius: 12px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border);
+}}
+.hs-label {{
+  display: block; font-family: var(--font-display); font-size: .6rem;
+  font-weight: 700; letter-spacing: .22em; color: var(--text-3);
+}}
+.hs-value {{
+  display: block; margin: .25rem 0 .1rem; font-family: var(--font-display);
+  font-size: 1.9rem; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}}
+.hs-note {{ display: block; font-size: .7rem; color: var(--text-3); }}
+.hs-best {{ border-color: color-mix(in srgb, var(--accent-2) 40%, var(--border)); }}
+.hs-best .hs-value {{ color: var(--accent-2); text-shadow: 0 0 20px var(--glow-2); }}
+.hs-record {{
+  border-color: var(--accent); box-shadow: 0 0 26px var(--glow);
+}}
+.hs-record .hs-value {{ color: var(--accent); text-shadow: 0 0 22px var(--glow); }}
+.hs-record .hs-note {{
+  color: var(--accent); font-family: var(--font-display); font-weight: 700;
+  letter-spacing: .16em; font-size: .62rem;
+}}
+
 /* ── sidebar project rows ───────────────────────────────── */
 .proj-row {{ display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; line-height: 1.2; }}
 .proj-row i {{ width: 8px; height: 8px; border-radius: 50%; flex: none; }}

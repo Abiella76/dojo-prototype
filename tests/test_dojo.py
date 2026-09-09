@@ -540,3 +540,28 @@ def test_default_sort_keeps_the_order_they_were_added():
              _timed(9, order=1, text="second")]
     assert [t["text"] for t in board.sort_tasks(tasks, "Order added")] == [
         "first", "second", "third"]
+
+
+def test_score_records_on_an_empty_board():
+    """No division by zero, and no fictional record."""
+    assert db.score_records() == {"best_day": None, "best_xp": 0, "scoring_days": 0,
+                                  "total": 0, "average": 0}
+
+
+def test_high_score_is_the_best_single_day():
+    for offset, points in ((3, 30), (2, 140), (1, 60)):
+        day = (date.today() - timedelta(days=offset)).isoformat()
+        db._log_xp(day, db.add_task(day, f"q{offset}", "Low"), points, "test")
+    records = db.score_records()
+    assert records["best_xp"] == 140
+    assert records["best_day"] == (date.today() - timedelta(days=2)).isoformat()
+
+
+def test_daily_average_counts_scoring_days_not_the_calendar():
+    """A fortnight off should not read as a collapse in daily output."""
+    for offset, points in ((30, 100), (1, 50)):
+        day = (date.today() - timedelta(days=offset)).isoformat()
+        db._log_xp(day, db.add_task(day, f"q{offset}", "Low"), points, "test")
+    records = db.score_records()
+    assert records["scoring_days"] == 2          # not the 30 days between them
+    assert records["average"] == 75              # 150 over 2, not over 30

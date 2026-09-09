@@ -722,6 +722,32 @@ def project_progress(day: str | None = None) -> dict[str, dict[str, int]]:
     return out
 
 
+def score_records() -> dict[str, Any]:
+    """All-time scoring records: the best single day, and the daily average.
+
+    All-time on purpose. A high score that resets when you change the range
+    picker is not a record, it is just the maximum of whatever is on screen.
+    """
+    conn = connect()
+    best = conn.execute(
+        "SELECT day, COALESCE(SUM(points), 0) AS xp FROM xp_log "
+        "GROUP BY day ORDER BY xp DESC, day DESC LIMIT 1"
+    ).fetchone()
+    agg = conn.execute(
+        "SELECT COUNT(DISTINCT day) AS days, COALESCE(SUM(points), 0) AS total FROM xp_log"
+    ).fetchone()
+    days, total = int(agg["days"]), int(agg["total"])
+    return {
+        "best_day": best["day"] if best else None,
+        "best_xp": int(best["xp"]) if best else 0,
+        "scoring_days": days,
+        "total": total,
+        # Averaged over days that actually scored, not over the calendar: a
+        # fortnight off should not read as a collapse in daily output.
+        "average": round(total / days) if days else 0,
+    }
+
+
 def export_state() -> dict[str, Any]:
     conn = connect()
     return {

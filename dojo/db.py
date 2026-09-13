@@ -694,6 +694,26 @@ def remove_project(name: str) -> list[str]:
     return set_projects([p for p in projects() if p.lower() != str(name).strip().lower()])
 
 
+def projects_in_use() -> list[str]:
+    """Every project label actually carried by a quest, roster or not."""
+    rows = connect().execute(
+        "SELECT DISTINCT project FROM tasks WHERE project IS NOT NULL AND project <> ''"
+    ).fetchall()
+    return sorted({r["project"] for r in rows})
+
+
+def known_projects() -> list[str]:
+    """The roster, plus any project still carried by quests but off the roster.
+
+    A label in use must stay assignable. Losing it from the roster — however
+    that happens — should never leave you unable to file a quest under a
+    project you can plainly see on the board.
+    """
+    roster = projects()
+    lowered = {p.lower() for p in roster}
+    return roster + [p for p in projects_in_use() if p.lower() not in lowered]
+
+
 def project_progress(day: str | None = None) -> dict[str, dict[str, int]]:
     """Open and cleared counts per project, for every project on the roster.
 

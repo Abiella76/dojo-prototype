@@ -565,3 +565,45 @@ def test_daily_average_counts_scoring_days_not_the_calendar():
     records = db.score_records()
     assert records["scoring_days"] == 2          # not the 30 days between them
     assert records["average"] == 75              # 150 over 2, not over 30
+
+
+def test_a_project_in_use_stays_assignable_after_falling_off_the_roster():
+    """The reported bug: the label survives on quests, so the picker must keep it."""
+    day = date.today().isoformat()
+    db.set_projects(["NOONTIDE", "Personal"])
+    db.add_task(day, "noontide work", "High", project="NOONTIDE")
+    db.remove_project("NOONTIDE")
+
+    assert db.projects() == ["Personal"]                      # off the curated list
+    assert "NOONTIDE" in db.projects_in_use()                 # still on the quests
+    assert "NOONTIDE" in db.known_projects()                  # and still offered
+
+
+def test_known_projects_lists_the_roster_first_then_strays():
+    day = date.today().isoformat()
+    db.set_projects(["Acme", "Personal"])
+    db.add_task(day, "stray", "Low", project="Orphan Co")
+    assert db.known_projects() == ["Acme", "Personal", "Orphan Co"]
+
+
+def test_known_projects_does_not_double_count_case_variants():
+    day = date.today().isoformat()
+    db.set_projects(["Acme Corp"])
+    db.add_task(day, "same thing", "Low", project="acme corp")
+    assert db.known_projects() == ["Acme Corp"]
+
+
+def test_re_adding_a_lost_project_restores_it_without_duplicating():
+    day = date.today().isoformat()
+    db.set_projects(["Personal"])
+    db.add_task(day, "noontide work", "High", project="NOONTIDE")
+    db.add_project("NOONTIDE")
+    assert db.projects() == ["Personal", "NOONTIDE"]
+    assert db.known_projects() == ["Personal", "NOONTIDE"]
+
+
+def test_quests_with_no_project_do_not_create_a_phantom_entry():
+    db.set_projects(["Acme"])
+    db.add_task(date.today().isoformat(), "unlabelled", "Low")
+    assert db.projects_in_use() == []
+    assert db.known_projects() == ["Acme"]

@@ -357,6 +357,8 @@ code {{ font-family: ui-monospace, 'SF Mono', monospace; color: var(--accent); }
 .proj-row i {{ width: 8px; height: 8px; border-radius: 50%; flex: none; }}
 .proj-row b {{ font-size: .84rem; }}
 .proj-row span {{ width: 100%; padding-left: 1rem; font-size: .7rem; color: var(--text-3); }}
+.proj-lost i {{ border: 1px dashed var(--text-3); background: transparent !important; }}
+.proj-lost b {{ color: var(--text-2); }}
 
 /* ── tabs ───────────────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {{ gap: .3rem; border-bottom: 1px solid var(--border); }}

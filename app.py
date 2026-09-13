@@ -192,11 +192,37 @@ with st.sidebar:
                     unsafe_allow_html=True,
                 )
             with cols[1]:
-                if st.button("✕", key=f"rmproj_{name}", help=f"Remove {name}"):
-                    db.remove_project(name)
-                    st.rerun()
+                # Behind a confirm. This used to be a single unguarded click on
+                # a small button, which silently dropped the project while its
+                # quests kept the label — indistinguishable from it vanishing.
+                with st.popover("✕", help=f"Remove {name}"):
+                    still = p_stat.get("open", 0) + p_stat.get("done", 0)
+                    st.caption(
+                        f"Remove **{name}** from the list?"
+                        + (f" {still} quest{'s' if still != 1 else ''} keep the label "
+                           "and stay on the board." if still else "")
+                    )
+                    if st.button("Remove", key=f"rmproj_{name}", type="primary"):
+                        db.remove_project(name)
+                        st.rerun()
     else:
         st.caption("None yet — add your companies and personal life below.")
+
+    # Labels still carried by quests but missing from the list, with one click
+    # to put them back.
+    lost = [p for p in db.projects_in_use() if p.lower() not in {r.lower() for r in roster}]
+    for name in lost:
+        cols = st.columns([5, 1.4])
+        with cols[0]:
+            st.markdown(
+                f'<div class="proj-row proj-lost"><i></i><b>{name}</b>'
+                f'<span>on your quests, not on this list</span></div>',
+                unsafe_allow_html=True,
+            )
+        with cols[1]:
+            if st.button("Add", key=f"readd_{name}", help=f"Put {name} back on the list"):
+                db.add_project(name)
+                st.rerun()
 
     with st.form("add_project", clear_on_submit=True, border=False):
         new_project = st.text_input("New project", placeholder="Acme Corp",

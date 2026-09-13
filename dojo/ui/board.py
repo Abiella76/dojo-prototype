@@ -43,9 +43,10 @@ def quick_add(day: str, api_key: str | None) -> None:
                      "still clears, but pays nothing.",
             )
         with cols[3]:
-            roster = db.projects()
+            # known, not roster: a project still carried by quests stays
+            # assignable even if it has fallen off the roster.
             project = st.selectbox(
-                "Project", [None, *roster],
+                "Project", [None, *db.known_projects()],
                 format_func=lambda n: "No project" if n is None else n,
                 label_visibility="collapsed",
                 help="Which front this belongs to. Add projects in the sidebar.",
@@ -131,10 +132,8 @@ def sort_tasks(tasks: list[dict], how: str) -> list[dict]:
 
 def filter_bar(tasks: list[dict]) -> list[dict]:
     tags = sorted({t for task in tasks for t in task.get("tags") or []})
-    roster = db.projects()
-    # Anything labelled but no longer on the roster still needs to be findable.
-    seen = [p for p in sorted({t.get("project") for t in tasks if t.get("project")})
-            if p not in roster]
+    roster = db.known_projects()
+    seen: list[str] = []
     # The status control holds three words and clips if it is squeezed.
     cols = st.columns([2.3, 1.6, 1.6, 1.9, 2.2, 1.9])
     with cols[0]:
@@ -233,7 +232,7 @@ def _edit_panel(task: dict) -> None:
         with row[1]:
             current_due = date.fromisoformat(task["due_date"]) if task.get("due_date") else None
             due = st.date_input("Due date", value=current_due, format="YYYY-MM-DD")
-        edit_roster = db.projects()
+        edit_roster = db.known_projects()
         current = task.get("project")
         options = [None, *edit_roster] + ([current] if current and current not in edit_roster else [])
         project = st.selectbox(

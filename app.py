@@ -22,6 +22,10 @@ st.set_page_config(
 
 try:
     db.connect()
+    # Streamlit re-runs this whole file on every click. Opening a read cache
+    # for the run means the settings, roster and objectives each cost one
+    # lookup for the page rather than one per card.
+    db.begin_run()
 except db.StorageError as exc:
     # A bad DATABASE_URL should explain itself, not dump a traceback at whoever
     # opens the app. The message deliberately carries no credentials.
@@ -328,6 +332,7 @@ with board_tab:
     st.write("")
 
     all_tasks = db.list_tasks(day_str)
+    db.prefetch_subtasks(day_str)       # every card's objectives, in one go
     if not all_tasks:
         st.info("No quests logged for this day. Accept your first one above.")
     else:

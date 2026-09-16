@@ -272,6 +272,32 @@ def backend() -> str:
     return "postgres" if connect().is_pg else "sqlite"
 
 
+# ────── per-run read cache ──────
+# Streamlit re-executes the whole script on every interaction, so the same
+# lookups are otherwise repeated dozens of times per render — once per card for
+# anything a card asks for. A run opens a cache, reads go through it, and any
+# write empties it. With no run open (tests, scripts) nothing is cached, so the
+# behaviour of the module on its own is unchanged.
+
+def begin_run() -> None:
+    _local.cache = {}
+
+
+def _cached(key: tuple, producer: Any) -> Any:
+    cache = getattr(_local, "cache", None)
+    if cache is None:
+        return producer()
+    if key not in cache:
+        cache[key] = producer()
+    return cache[key]
+
+
+def _invalidate() -> None:
+    cache = getattr(_local, "cache", None)
+    if cache is not None:
+        cache.clear()
+
+
 def reset_connection() -> None:
     """Drop the cached handle — used by tests switching databases."""
     conn = getattr(_local, "conn", None)
@@ -279,16 +305,22 @@ def reset_connection() -> None:
         conn.close()
     _local.conn = None
     _local.key = None
+    _invalidate()
 
 
 # ────── settings ──────
 
 def get_setting(key: str, default: str | None = None) -> str | None:
-    row = connect().execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else default
+    def read() -> str | None:
+        row = connect().execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+    value = _cached(("setting", key), read)
+    return default if value is None else value
 
 
 def set_setting(key: str, value: str) -> None:
+    _invalidate()
     conn = connect()
     conn.execute(
         "INSERT INTO settings(key, value) VALUES(?, ?) "
@@ -343,6 +375,7 @@ def add_task(
         ),
     )
     conn.commit()
+    _invalidate()
     _sync_sweep_bonus(day)
     return task_id
 
@@ -362,10 +395,36 @@ def list_tasks(day: str, *, parent_id: int | None = None) -> list[dict[str, Any]
 
 
 def list_subtasks(parent_id: int) -> list[dict[str, Any]]:
-    rows = connect().execute(
-        "SELECT * FROM tasks WHERE parent_id = ? ORDER BY sort_order, id", (parent_id,)
-    ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    def read() -> list[dict[str, Any]]:
+        rows = connect().execute(
+            "SELECT * FROM tasks WHERE parent_id = ? ORDER BY sort_order, id", (parent_id,)
+        ).fetchall()
+        return [_row_to_task(r) for r in rows]
+    return _cached(("subtasks", int(parent_id)), read)
+
+
+def prefetch_subtasks(day: str) -> None:
+    """Load every objective for a day's quests at once, into the run cache.
+
+    Each card asks for its own objectives twice — the card itself and its Steps
+    panel — so a board of fifteen quests was thirty round trips for data that
+    fits in one. Parents with none are seeded too, so an empty quest is a cache
+    hit rather than a query.
+    """
+    cache = getattr(_local, "cache", None)
+    if cache is None:
+        return
+    conn = connect()
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in conn.execute(
+        "SELECT s.* FROM tasks s JOIN tasks p ON s.parent_id = p.id "
+        "WHERE p.day = ? AND p.parent_id IS NULL ORDER BY s.sort_order, s.id", (day,)
+    ).fetchall():
+        grouped.setdefault(int(row["parent_id"]), []).append(_row_to_task(row))
+    for row in conn.execute(
+        "SELECT id FROM tasks WHERE day = ? AND parent_id IS NULL", (day,)
+    ).fetchall():
+        cache[("subtasks", int(row["id"]))] = grouped.get(int(row["id"]), [])
 
 
 def update_task(task_id: int, **fields: Any) -> None:
@@ -385,6 +444,7 @@ def update_task(task_id: int, **fields: Any) -> None:
     values.append(task_id)
     conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", values)
     conn.commit()
+    _invalidate()
 
 
 def delete_task(task_id: int) -> None:
@@ -398,6 +458,7 @@ def delete_task(task_id: int) -> None:
     conn.execute("DELETE FROM xp_log WHERE task_id = ?", (task_id,))
     conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
+    _invalidate()
     _sync_sweep_bonus(task["day"])
 
 
@@ -470,6 +531,7 @@ def set_completed(task_id: int, completed: bool, *, streak: int = 0) -> int:
         )
         conn.commit()
 
+    _invalidate()
     _sync_sweep_bonus(task["day"])
     return total_xp() - before
 
@@ -483,6 +545,7 @@ def _log_xp(day: str, task_id: int | None, points: int, reason: str) -> None:
         (day, task_id, points, reason, datetime.now().isoformat(timespec="seconds")),
     )
     conn.commit()
+    _invalidate()
 
 
 def award_creation(day: str, task_id: int) -> int:
@@ -696,10 +759,12 @@ def remove_project(name: str) -> list[str]:
 
 def projects_in_use() -> list[str]:
     """Every project label actually carried by a quest, roster or not."""
-    rows = connect().execute(
-        "SELECT DISTINCT project FROM tasks WHERE project IS NOT NULL AND project <> ''"
-    ).fetchall()
-    return sorted({r["project"] for r in rows})
+    def read() -> list[str]:
+        rows = connect().execute(
+            "SELECT DISTINCT project FROM tasks WHERE project IS NOT NULL AND project <> ''"
+        ).fetchall()
+        return sorted({r["project"] for r in rows})
+    return _cached(("projects_in_use",), read)
 
 
 def known_projects() -> list[str]:

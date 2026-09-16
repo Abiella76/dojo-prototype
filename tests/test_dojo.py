@@ -607,3 +607,47 @@ def test_quests_with_no_project_do_not_create_a_phantom_entry():
     db.add_task(date.today().isoformat(), "unlabelled", "Low")
     assert db.projects_in_use() == []
     assert db.known_projects() == ["Acme"]
+
+
+def test_no_caching_until_a_run_is_opened():
+    """The module on its own must behave exactly as before."""
+    db.set_setting("colour", "red")
+    assert db.get_setting("colour") == "red"
+    db.set_setting("colour", "blue")
+    assert db.get_setting("colour") == "blue"
+
+
+def test_a_run_caches_reads_but_a_write_invalidates():
+    db.set_setting("colour", "red")
+    db.begin_run()
+    assert db.get_setting("colour") == "red"
+    db.set_setting("colour", "blue")          # write inside the run
+    assert db.get_setting("colour") == "blue"  # must not serve the stale value
+    db.reset_connection()
+
+
+def test_prefetch_serves_the_same_objectives_as_querying_one_by_one():
+    day = date.today().isoformat()
+    parents = [db.add_task(day, f"quest {i}", "High") for i in range(3)]
+    db.add_task(day, "step a", "Low", parent_id=parents[0])
+    db.add_task(day, "step b", "Low", parent_id=parents[0])
+    db.add_task(day, "only step", "Low", parent_id=parents[2])
+    expected = {pid: [s["text"] for s in db.list_subtasks(pid)] for pid in parents}
+
+    db.begin_run()
+    db.prefetch_subtasks(day)
+    got = {pid: [s["text"] for s in db.list_subtasks(pid)] for pid in parents}
+    db.reset_connection()
+
+    assert got == expected
+    assert got[parents[1]] == []          # a quest with none is a hit, not a miss
+
+
+def test_adding_a_quest_mid_run_is_visible_to_the_same_run():
+    day = date.today().isoformat()
+    db.begin_run()
+    db.prefetch_subtasks(day)
+    parent = db.add_task(day, "new quest", "High")
+    db.add_task(day, "its step", "Low", parent_id=parent)
+    assert [s["text"] for s in db.list_subtasks(parent)] == ["its step"]
+    db.reset_connection()
